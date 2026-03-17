@@ -1,0 +1,1431 @@
+{
+  "date": "2026-03-15",
+  "models": [
+    "ECMWF IFS",
+    "GFS GEFS",
+    "ICON",
+    "GEM",
+    "BOM ACCESS",
+    "UKMO"
+  ],
+  "api_calls": 20,
+  "cities": {
+    "Ankara": {
+      "1gg": {
+        "mean_f": 54.8,
+        "std_f": 1.7,
+        "mean_c": 12.6,
+        "std_c": 0.9,
+        "mode_c": 12,
+        "mode_f": 54,
+        "mode_prob": 42.9,
+        "pm1_prob": 81.4,
+        "best_pair": [
+          12,
+          13
+        ],
+        "best_pair_prob": 73.9,
+        "distribution_c": {
+          "10": 1.2,
+          "11": 7.5,
+          "12": 42.9,
+          "13": 31.1,
+          "14": 13.7,
+          "15": 2.5,
+          "16": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 12.4,
+          "GFS GEFS": 11.6,
+          "ICON": 13.2,
+          "GEM": 14.0,
+          "UKMO": 12.5
+        }
+      },
+      "2gg": {
+        "mean_f": 56.3,
+        "std_f": 2.3,
+        "mean_c": 13.5,
+        "std_c": 1.3,
+        "mode_c": 13,
+        "mode_f": 55,
+        "mode_prob": 31.7,
+        "pm1_prob": 68.9,
+        "best_pair": [
+          13,
+          14
+        ],
+        "best_pair_prob": 57.8,
+        "distribution_c": {
+          "10": 0.6,
+          "11": 7.5,
+          "12": 11.2,
+          "13": 31.7,
+          "14": 26.1,
+          "15": 16.1,
+          "16": 4.3,
+          "17": 2.5
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 13.4,
+          "GFS GEFS": 11.8,
+          "ICON": 14.1,
+          "GEM": 15.1,
+          "UKMO": 13.6
+        }
+      }
+    },
+    "Atlanta": {
+      "1gg": {
+        "mean_f": 64.9,
+        "std_f": 1.5,
+        "mean_c": 18.3,
+        "std_c": 0.8,
+        "mode_c": 18,
+        "mode_f": 64,
+        "mode_prob": 50.9,
+        "pm1_prob": 95.0,
+        "best_pair": [
+          18,
+          19
+        ],
+        "best_pair_prob": 80.1,
+        "distribution_c": {
+          "16": 0.6,
+          "17": 14.9,
+          "18": 50.9,
+          "19": 29.2,
+          "20": 1.2,
+          "21": 2.5,
+          "22": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 17.8,
+          "GFS GEFS": 18.5,
+          "ICON": 18.5,
+          "GEM": 19.3,
+          "UKMO": 17.5
+        }
+      },
+      "2gg": {
+        "mean_f": 44.0,
+        "std_f": 2.6,
+        "mean_c": 6.7,
+        "std_c": 1.5,
+        "mode_c": 6,
+        "mode_f": 43,
+        "mode_prob": 24.8,
+        "pm1_prob": 60.9,
+        "best_pair": [
+          6,
+          7
+        ],
+        "best_pair_prob": 47.8,
+        "distribution_c": {
+          "1": 0.6,
+          "3": 0.6,
+          "4": 5.6,
+          "5": 13.0,
+          "6": 24.8,
+          "7": 23.0,
+          "8": 23.0,
+          "9": 7.5,
+          "10": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 5.8,
+          "GFS GEFS": 7.6,
+          "ICON": 7.2,
+          "GEM": 5.0,
+          "UKMO": 8.4
+        }
+      }
+    },
+    "BuenosAires": {
+      "1gg": {
+        "mean_f": 83.9,
+        "std_f": 4.8,
+        "mean_c": 28.8,
+        "std_c": 2.7,
+        "mode_c": 27,
+        "mode_f": 81,
+        "mode_prob": 16.1,
+        "pm1_prob": 42.2,
+        "best_pair": [
+          26,
+          27
+        ],
+        "best_pair_prob": 30.4,
+        "distribution_c": {
+          "24": 2.5,
+          "25": 5.6,
+          "26": 14.3,
+          "27": 16.1,
+          "28": 11.8,
+          "29": 11.2,
+          "30": 13.7,
+          "31": 5.6,
+          "32": 6.8,
+          "33": 5.0,
+          "34": 5.0,
+          "35": 1.9,
+          "36": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 29.2,
+          "GFS GEFS": 29.5,
+          "ICON": 28.6,
+          "GEM": 27.4,
+          "UKMO": 28.6
+        }
+      },
+      "2gg": {
+        "mean_f": 78.2,
+        "std_f": 3.6,
+        "mean_c": 25.7,
+        "std_c": 2.0,
+        "mode_c": 25,
+        "mode_f": 77,
+        "mode_prob": 25.5,
+        "pm1_prob": 64.6,
+        "best_pair": [
+          25,
+          26
+        ],
+        "best_pair_prob": 49.1,
+        "distribution_c": {
+          "22": 5.0,
+          "23": 4.3,
+          "24": 15.5,
+          "25": 25.5,
+          "26": 23.6,
+          "27": 10.6,
+          "28": 7.5,
+          "29": 2.5,
+          "30": 3.7,
+          "32": 1.2,
+          "33": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 26.1,
+          "GFS GEFS": 27.2,
+          "ICON": 24.9,
+          "GEM": 23.7,
+          "UKMO": 25.9
+        }
+      }
+    },
+    "Chicago": {
+      "1gg": {
+        "mean_f": 32.6,
+        "std_f": 4.5,
+        "mean_c": 0.3,
+        "std_c": 2.5,
+        "mode_c": -1,
+        "mode_f": 30,
+        "mode_prob": 33.5,
+        "pm1_prob": 71.4,
+        "best_pair": [
+          -1,
+          0
+        ],
+        "best_pair_prob": 62.1,
+        "distribution_c": {
+          "-3": 1.2,
+          "-2": 9.3,
+          "-1": 33.5,
+          "0": 28.6,
+          "1": 11.2,
+          "2": 3.1,
+          "3": 6.2,
+          "6": 1.2,
+          "7": 2.5,
+          "8": 0.6,
+          "10": 1.2,
+          "11": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": -0.0,
+          "GFS GEFS": 1.7,
+          "ICON": -1.1,
+          "GEM": 2.9,
+          "UKMO": -0.7
+        }
+      },
+      "2gg": {
+        "mean_f": 20.8,
+        "std_f": 3.7,
+        "mean_c": -6.2,
+        "std_c": 2.1,
+        "mode_c": -5,
+        "mode_f": 23,
+        "mode_prob": 19.9,
+        "pm1_prob": 47.8,
+        "best_pair": [
+          -6,
+          -5
+        ],
+        "best_pair_prob": 34.8,
+        "distribution_c": {
+          "-11": 0.6,
+          "-10": 5.6,
+          "-9": 9.9,
+          "-8": 13.7,
+          "-7": 14.3,
+          "-6": 14.9,
+          "-5": 19.9,
+          "-4": 13.0,
+          "-3": 3.7,
+          "-2": 4.3
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": -8.2,
+          "GFS GEFS": -5.3,
+          "ICON": -5.6,
+          "GEM": -6.1,
+          "UKMO": -3.8
+        }
+      }
+    },
+    "Dallas": {
+      "1gg": {
+        "mean_f": 48.4,
+        "std_f": 2.0,
+        "mean_c": 9.1,
+        "std_c": 1.1,
+        "mode_c": 9,
+        "mode_f": 48,
+        "mode_prob": 39.1,
+        "pm1_prob": 85.1,
+        "best_pair": [
+          8,
+          9
+        ],
+        "best_pair_prob": 62.1,
+        "distribution_c": {
+          "6": 1.2,
+          "7": 3.7,
+          "8": 23.0,
+          "9": 39.1,
+          "10": 23.0,
+          "11": 6.8,
+          "12": 1.9,
+          "13": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 8.6,
+          "GFS GEFS": 9.3,
+          "ICON": 8.8,
+          "GEM": 9.6,
+          "UKMO": 10.4
+        }
+      },
+      "2gg": {
+        "mean_f": 62.3,
+        "std_f": 2.4,
+        "mean_c": 16.9,
+        "std_c": 1.3,
+        "mode_c": 17,
+        "mode_f": 63,
+        "mode_prob": 39.8,
+        "pm1_prob": 80.1,
+        "best_pair": [
+          17,
+          18
+        ],
+        "best_pair_prob": 61.5,
+        "distribution_c": {
+          "12": 0.6,
+          "13": 2.5,
+          "14": 1.9,
+          "15": 9.3,
+          "16": 18.6,
+          "17": 39.8,
+          "18": 21.7,
+          "19": 2.5,
+          "20": 2.5,
+          "21": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 17.2,
+          "GFS GEFS": 16.2,
+          "ICON": 16.8,
+          "GEM": 16.6,
+          "UKMO": 17.5
+        }
+      }
+    },
+    "Londra": {
+      "1gg": {
+        "mean_f": 52.2,
+        "std_f": 1.2,
+        "mean_c": 11.2,
+        "std_c": 0.7,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 54.0,
+        "pm1_prob": 96.3,
+        "best_pair": [
+          11,
+          12
+        ],
+        "best_pair_prob": 84.5,
+        "distribution_c": {
+          "9": 0.6,
+          "10": 11.8,
+          "11": 54.0,
+          "12": 30.4,
+          "13": 3.1
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 11.1,
+          "GFS GEFS": 10.9,
+          "ICON": 11.8,
+          "GEM": 10.8,
+          "UKMO": 11.1
+        }
+      },
+      "2gg": {
+        "mean_f": 56.8,
+        "std_f": 1.7,
+        "mean_c": 13.8,
+        "std_c": 1.0,
+        "mode_c": 14,
+        "mode_f": 57,
+        "mode_prob": 42.9,
+        "pm1_prob": 87.0,
+        "best_pair": [
+          13,
+          14
+        ],
+        "best_pair_prob": 70.2,
+        "distribution_c": {
+          "10": 0.6,
+          "11": 0.6,
+          "12": 7.5,
+          "13": 27.3,
+          "14": 42.9,
+          "15": 16.8,
+          "16": 4.3
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 13.8,
+          "GFS GEFS": 13.5,
+          "ICON": 14.8,
+          "GEM": 13.7,
+          "UKMO": 12.3
+        }
+      }
+    },
+    "Lucknow": {
+      "1gg": {
+        "mean_f": 90.8,
+        "std_f": 4.9,
+        "mean_c": 32.7,
+        "std_c": 2.7,
+        "mode_c": 32,
+        "mode_f": 90,
+        "mode_prob": 21.1,
+        "pm1_prob": 54.0,
+        "best_pair": [
+          32,
+          33
+        ],
+        "best_pair_prob": 39.8,
+        "distribution_c": {
+          "24": 0.6,
+          "25": 0.6,
+          "26": 1.9,
+          "27": 0.6,
+          "28": 1.9,
+          "29": 1.2,
+          "30": 9.9,
+          "31": 14.3,
+          "32": 21.1,
+          "33": 18.6,
+          "34": 11.8,
+          "35": 1.2,
+          "36": 2.5,
+          "37": 5.6,
+          "38": 6.2,
+          "39": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 31.8,
+          "GFS GEFS": 36.9,
+          "ICON": 31.9,
+          "GEM": 30.3,
+          "UKMO": 32.5
+        }
+      },
+      "2gg": {
+        "mean_f": 93.2,
+        "std_f": 4.3,
+        "mean_c": 34.0,
+        "std_c": 2.4,
+        "mode_c": 34,
+        "mode_f": 93,
+        "mode_prob": 22.4,
+        "pm1_prob": 55.9,
+        "best_pair": [
+          33,
+          34
+        ],
+        "best_pair_prob": 42.9,
+        "distribution_c": {
+          "26": 0.6,
+          "28": 1.2,
+          "29": 2.5,
+          "30": 3.7,
+          "31": 3.7,
+          "32": 9.3,
+          "33": 20.5,
+          "34": 22.4,
+          "35": 13.0,
+          "36": 6.8,
+          "37": 4.3,
+          "38": 9.3,
+          "39": 2.5
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 33.6,
+          "GFS GEFS": 37.5,
+          "ICON": 34.2,
+          "GEM": 30.4,
+          "UKMO": 32.8
+        }
+      }
+    },
+    "Miami": {
+      "1gg": {
+        "mean_f": 83.3,
+        "std_f": 2.3,
+        "mean_c": 28.5,
+        "std_c": 1.3,
+        "mode_c": 28,
+        "mode_f": 82,
+        "mode_prob": 25.5,
+        "pm1_prob": 67.1,
+        "best_pair": [
+          28,
+          29
+        ],
+        "best_pair_prob": 47.8,
+        "distribution_c": {
+          "26": 5.6,
+          "27": 19.3,
+          "28": 25.5,
+          "29": 22.4,
+          "30": 23.0,
+          "31": 4.3
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 27.1,
+          "GFS GEFS": 28.5,
+          "ICON": 29.6,
+          "GEM": 29.5,
+          "UKMO": 28.7
+        }
+      },
+      "2gg": {
+        "mean_f": 73.6,
+        "std_f": 2.9,
+        "mean_c": 23.1,
+        "std_c": 1.6,
+        "mode_c": 22,
+        "mode_f": 72,
+        "mode_prob": 28.6,
+        "pm1_prob": 64.0,
+        "best_pair": [
+          22,
+          23
+        ],
+        "best_pair_prob": 53.4,
+        "distribution_c": {
+          "20": 3.1,
+          "21": 10.6,
+          "22": 28.6,
+          "23": 24.8,
+          "24": 5.6,
+          "25": 13.0,
+          "26": 14.3
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 22.2,
+          "GFS GEFS": 25.5,
+          "ICON": 22.6,
+          "GEM": 21.4,
+          "UKMO": 24.8
+        }
+      }
+    },
+    "Monaco": {
+      "1gg": {
+        "mean_f": 46.8,
+        "std_f": 1.8,
+        "mean_c": 8.2,
+        "std_c": 1.0,
+        "mode_c": 8,
+        "mode_f": 46,
+        "mode_prob": 32.9,
+        "pm1_prob": 88.2,
+        "best_pair": [
+          8,
+          9
+        ],
+        "best_pair_prob": 64.0,
+        "distribution_c": {
+          "6": 1.9,
+          "7": 24.2,
+          "8": 32.9,
+          "9": 31.1,
+          "10": 8.7,
+          "11": 0.6,
+          "12": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 8.4,
+          "GFS GEFS": 8.4,
+          "ICON": 8.3,
+          "GEM": 7.5,
+          "UKMO": 8.4
+        }
+      },
+      "2gg": {
+        "mean_f": 47.3,
+        "std_f": 2.4,
+        "mean_c": 8.5,
+        "std_c": 1.3,
+        "mode_c": 8,
+        "mode_f": 46,
+        "mode_prob": 31.1,
+        "pm1_prob": 73.3,
+        "best_pair": [
+          8,
+          9
+        ],
+        "best_pair_prob": 59.6,
+        "distribution_c": {
+          "5": 1.2,
+          "6": 5.6,
+          "7": 13.7,
+          "8": 31.1,
+          "9": 28.6,
+          "10": 12.4,
+          "11": 5.0,
+          "12": 2.5
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 8.3,
+          "GFS GEFS": 8.8,
+          "ICON": 9.2,
+          "GEM": 8.1,
+          "UKMO": 7.4
+        }
+      }
+    },
+    "New York": {
+      "1gg": {
+        "mean_f": 59.7,
+        "std_f": 2.6,
+        "mean_c": 15.4,
+        "std_c": 1.4,
+        "mode_c": 16,
+        "mode_f": 61,
+        "mode_prob": 29.8,
+        "pm1_prob": 75.8,
+        "best_pair": [
+          15,
+          16
+        ],
+        "best_pair_prob": 54.0,
+        "distribution_c": {
+          "11": 0.6,
+          "12": 4.3,
+          "13": 6.8,
+          "14": 9.9,
+          "15": 24.2,
+          "16": 29.8,
+          "17": 21.7,
+          "18": 1.9,
+          "19": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 14.9,
+          "GFS GEFS": 16.0,
+          "ICON": 16.6,
+          "GEM": 15.9,
+          "UKMO": 12.6
+        }
+      },
+      "2gg": {
+        "mean_f": 53.6,
+        "std_f": 5.3,
+        "mean_c": 12.0,
+        "std_c": 2.9,
+        "mode_c": 13,
+        "mode_f": 55,
+        "mode_prob": 20.5,
+        "pm1_prob": 46.0,
+        "best_pair": [
+          12,
+          13
+        ],
+        "best_pair_prob": 39.8,
+        "distribution_c": {
+          "2": 0.6,
+          "3": 0.6,
+          "5": 1.9,
+          "6": 4.3,
+          "7": 3.1,
+          "8": 2.5,
+          "9": 3.1,
+          "10": 8.7,
+          "11": 8.7,
+          "12": 19.3,
+          "13": 20.5,
+          "14": 6.2,
+          "15": 8.1,
+          "16": 10.6,
+          "17": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 12.1,
+          "GFS GEFS": 9.4,
+          "ICON": 12.0,
+          "GEM": 14.5,
+          "UKMO": 13.1
+        }
+      }
+    },
+    "Parigi": {
+      "1gg": {
+        "mean_f": 51.8,
+        "std_f": 1.3,
+        "mean_c": 11.0,
+        "std_c": 0.7,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 46.0,
+        "pm1_prob": 98.1,
+        "best_pair": [
+          11,
+          12
+        ],
+        "best_pair_prob": 72.7,
+        "distribution_c": {
+          "9": 1.9,
+          "10": 25.5,
+          "11": 46.0,
+          "12": 26.7
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 11.2,
+          "GFS GEFS": 10.2,
+          "ICON": 11.3,
+          "GEM": 11.0,
+          "UKMO": 10.8
+        }
+      },
+      "2gg": {
+        "mean_f": 58.5,
+        "std_f": 1.3,
+        "mean_c": 14.7,
+        "std_c": 0.7,
+        "mode_c": 15,
+        "mode_f": 59,
+        "mode_prob": 59.0,
+        "pm1_prob": 93.8,
+        "best_pair": [
+          14,
+          15
+        ],
+        "best_pair_prob": 80.1,
+        "distribution_c": {
+          "11": 0.6,
+          "12": 1.9,
+          "13": 3.7,
+          "14": 21.1,
+          "15": 59.0,
+          "16": 13.7
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 14.8,
+          "GFS GEFS": 14.1,
+          "ICON": 15.1,
+          "GEM": 14.6,
+          "UKMO": 14.9
+        }
+      }
+    },
+    "SaoPaulo": {
+      "1gg": {
+        "mean_f": 86.2,
+        "std_f": 1.2,
+        "mean_c": 30.1,
+        "std_c": 0.7,
+        "mode_c": 30,
+        "mode_f": 86,
+        "mode_prob": 47.2,
+        "pm1_prob": 97.5,
+        "best_pair": [
+          30,
+          31
+        ],
+        "best_pair_prob": 77.6,
+        "distribution_c": {
+          "28": 0.6,
+          "29": 19.9,
+          "30": 47.2,
+          "31": 30.4,
+          "32": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 29.7,
+          "GFS GEFS": 30.5,
+          "ICON": 30.6,
+          "GEM": 30.4,
+          "UKMO": 29.5
+        }
+      },
+      "2gg": {
+        "mean_f": 85.6,
+        "std_f": 2.1,
+        "mean_c": 29.8,
+        "std_c": 1.2,
+        "mode_c": 30,
+        "mode_f": 86,
+        "mode_prob": 37.3,
+        "pm1_prob": 87.6,
+        "best_pair": [
+          30,
+          31
+        ],
+        "best_pair_prob": 62.7,
+        "distribution_c": {
+          "22": 0.6,
+          "27": 1.9,
+          "28": 8.1,
+          "29": 24.8,
+          "30": 37.3,
+          "31": 25.5,
+          "32": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 30.2,
+          "GFS GEFS": 29.9,
+          "ICON": 29.8,
+          "GEM": 30.1,
+          "UKMO": 28.2
+        }
+      }
+    },
+    "Seattle": {
+      "1gg": {
+        "mean_f": 53.4,
+        "std_f": 3.1,
+        "mean_c": 11.9,
+        "std_c": 1.7,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 23.0,
+        "pm1_prob": 63.4,
+        "best_pair": [
+          11,
+          12
+        ],
+        "best_pair_prob": 44.7,
+        "distribution_c": {
+          "8": 0.6,
+          "9": 4.3,
+          "10": 18.6,
+          "11": 23.0,
+          "12": 21.7,
+          "13": 11.8,
+          "14": 11.8,
+          "15": 5.6,
+          "16": 2.5
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 12.3,
+          "GFS GEFS": 14.0,
+          "ICON": 11.0,
+          "GEM": 10.3,
+          "UKMO": 10.9
+        }
+      },
+      "2gg": {
+        "mean_f": 52.2,
+        "std_f": 1.8,
+        "mean_c": 11.2,
+        "std_c": 1.0,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 40.4,
+        "pm1_prob": 86.3,
+        "best_pair": [
+          10,
+          11
+        ],
+        "best_pair_prob": 65.2,
+        "distribution_c": {
+          "9": 2.5,
+          "10": 24.8,
+          "11": 40.4,
+          "12": 21.1,
+          "13": 9.3,
+          "14": 1.2,
+          "15": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 11.4,
+          "GFS GEFS": 11.4,
+          "ICON": 10.5,
+          "GEM": 11.2,
+          "UKMO": 11.9
+        }
+      }
+    },
+    "Seoul": {
+      "1gg": {
+        "mean_f": 48.9,
+        "std_f": 3.4,
+        "mean_c": 9.4,
+        "std_c": 1.9,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 37.3,
+        "pm1_prob": 62.1,
+        "best_pair": [
+          10,
+          11
+        ],
+        "best_pair_prob": 56.5,
+        "distribution_c": {
+          "5": 1.9,
+          "6": 9.9,
+          "7": 11.8,
+          "8": 8.7,
+          "9": 5.6,
+          "10": 19.3,
+          "11": 37.3,
+          "12": 5.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 10.6,
+          "GFS GEFS": 10.7,
+          "ICON": 6.6,
+          "GEM": 8.3,
+          "UKMO": 11.2
+        }
+      },
+      "2gg": {
+        "mean_f": 46.2,
+        "std_f": 3.0,
+        "mean_c": 7.9,
+        "std_c": 1.7,
+        "mode_c": 8,
+        "mode_f": 46,
+        "mode_prob": 23.0,
+        "pm1_prob": 53.4,
+        "best_pair": [
+          7,
+          8
+        ],
+        "best_pair_prob": 39.1,
+        "distribution_c": {
+          "4": 0.6,
+          "5": 3.7,
+          "6": 20.5,
+          "7": 16.1,
+          "8": 23.0,
+          "9": 14.3,
+          "10": 15.5,
+          "11": 5.6,
+          "12": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-18",
+        "per_model_mean_c": {
+          "ECMWF IFS": 7.9,
+          "GFS GEFS": 10.1,
+          "ICON": 7.3,
+          "GEM": 7.0,
+          "UKMO": 6.8
+        }
+      }
+    },
+    "Shanghai": {
+      "1gg": {
+        "mean_f": 53.6,
+        "std_f": 1.7,
+        "mean_c": 12.0,
+        "std_c": 1.0,
+        "mode_c": 12,
+        "mode_f": 54,
+        "mode_prob": 52.2,
+        "pm1_prob": 88.2,
+        "best_pair": [
+          11,
+          12
+        ],
+        "best_pair_prob": 70.2,
+        "distribution_c": {
+          "10": 6.2,
+          "11": 18.0,
+          "12": 52.2,
+          "13": 18.0,
+          "14": 3.1,
+          "15": 1.9,
+          "16": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 12.1,
+          "GFS GEFS": 11.2,
+          "ICON": 12.4,
+          "GEM": 12.4,
+          "UKMO": 11.4
+        }
+      },
+      "2gg": {
+        "mean_f": 56.3,
+        "std_f": 2.7,
+        "mean_c": 13.5,
+        "std_c": 1.5,
+        "mode_c": 13,
+        "mode_f": 55,
+        "mode_prob": 27.3,
+        "pm1_prob": 73.9,
+        "best_pair": [
+          13,
+          14
+        ],
+        "best_pair_prob": 54.0,
+        "distribution_c": {
+          "11": 5.6,
+          "12": 19.9,
+          "13": 27.3,
+          "14": 26.7,
+          "15": 12.4,
+          "16": 3.7,
+          "17": 3.1,
+          "18": 0.6,
+          "20": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-18",
+        "per_model_mean_c": {
+          "ECMWF IFS": 14.4,
+          "GFS GEFS": 12.4,
+          "ICON": 13.2,
+          "GEM": 14.5,
+          "UKMO": 12.5
+        }
+      }
+    },
+    "Singapore": {
+      "1gg": {
+        "mean_f": 87.0,
+        "std_f": 2.2,
+        "mean_c": 30.6,
+        "std_c": 1.2,
+        "mode_c": 31,
+        "mode_f": 88,
+        "mode_prob": 26.1,
+        "pm1_prob": 73.3,
+        "best_pair": [
+          30,
+          31
+        ],
+        "best_pair_prob": 50.9,
+        "distribution_c": {
+          "28": 3.1,
+          "29": 19.3,
+          "30": 24.8,
+          "31": 26.1,
+          "32": 22.4,
+          "33": 4.3
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 29.8,
+          "GFS GEFS": 29.5,
+          "ICON": 31.4,
+          "GEM": 32.0,
+          "UKMO": 31.1
+        }
+      },
+      "2gg": {
+        "mean_f": 87.6,
+        "std_f": 2.1,
+        "mean_c": 30.9,
+        "std_c": 1.2,
+        "mode_c": 32,
+        "mode_f": 90,
+        "mode_prob": 31.1,
+        "pm1_prob": 60.2,
+        "best_pair": [
+          31,
+          32
+        ],
+        "best_pair_prob": 54.0,
+        "distribution_c": {
+          "28": 1.2,
+          "29": 11.8,
+          "30": 26.7,
+          "31": 23.0,
+          "32": 31.1,
+          "33": 6.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-18",
+        "per_model_mean_c": {
+          "ECMWF IFS": 30.0,
+          "GFS GEFS": 30.1,
+          "ICON": 31.7,
+          "GEM": 32.1,
+          "UKMO": 31.6
+        }
+      }
+    },
+    "TelAviv": {
+      "1gg": {
+        "mean_f": 65.8,
+        "std_f": 1.4,
+        "mean_c": 18.8,
+        "std_c": 0.8,
+        "mode_c": 19,
+        "mode_f": 66,
+        "mode_prob": 55.3,
+        "pm1_prob": 92.5,
+        "best_pair": [
+          18,
+          19
+        ],
+        "best_pair_prob": 80.1,
+        "distribution_c": {
+          "16": 0.6,
+          "17": 6.2,
+          "18": 24.8,
+          "19": 55.3,
+          "20": 12.4,
+          "21": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 19.2,
+          "GFS GEFS": 18.5,
+          "ICON": 18.7,
+          "GEM": 19.2,
+          "UKMO": 17.9
+        }
+      },
+      "2gg": {
+        "mean_f": 74.3,
+        "std_f": 2.2,
+        "mean_c": 23.5,
+        "std_c": 1.2,
+        "mode_c": 23,
+        "mode_f": 73,
+        "mode_prob": 30.4,
+        "pm1_prob": 75.8,
+        "best_pair": [
+          23,
+          24
+        ],
+        "best_pair_prob": 59.6,
+        "distribution_c": {
+          "20": 0.6,
+          "21": 3.1,
+          "22": 16.1,
+          "23": 30.4,
+          "24": 29.2,
+          "25": 14.9,
+          "26": 5.0,
+          "27": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 24.3,
+          "GFS GEFS": 23.3,
+          "ICON": 22.4,
+          "GEM": 24.9,
+          "UKMO": 22.5
+        }
+      }
+    },
+    "Tokyo": {
+      "1gg": {
+        "mean_f": 57.7,
+        "std_f": 2.4,
+        "mean_c": 14.3,
+        "std_c": 1.3,
+        "mode_c": 15,
+        "mode_f": 59,
+        "mode_prob": 31.1,
+        "pm1_prob": 72.7,
+        "best_pair": [
+          14,
+          15
+        ],
+        "best_pair_prob": 58.4,
+        "distribution_c": {
+          "9": 0.6,
+          "10": 1.9,
+          "11": 1.2,
+          "12": 5.0,
+          "13": 17.4,
+          "14": 27.3,
+          "15": 31.1,
+          "16": 14.3,
+          "17": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 14.7,
+          "GFS GEFS": 14.9,
+          "ICON": 14.1,
+          "GEM": 13.3,
+          "UKMO": 13.7
+        }
+      },
+      "2gg": {
+        "mean_f": 57.7,
+        "std_f": 3.1,
+        "mean_c": 14.3,
+        "std_c": 1.7,
+        "mode_c": 15,
+        "mode_f": 59,
+        "mode_prob": 24.8,
+        "pm1_prob": 62.7,
+        "best_pair": [
+          15,
+          16
+        ],
+        "best_pair_prob": 45.3,
+        "distribution_c": {
+          "9": 0.6,
+          "10": 2.5,
+          "11": 5.0,
+          "12": 6.2,
+          "13": 16.1,
+          "14": 17.4,
+          "15": 24.8,
+          "16": 20.5,
+          "17": 5.6,
+          "18": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-18",
+        "per_model_mean_c": {
+          "ECMWF IFS": 13.8,
+          "GFS GEFS": 15.0,
+          "ICON": 15.5,
+          "GEM": 13.0,
+          "UKMO": 13.2
+        }
+      }
+    },
+    "Toronto": {
+      "1gg": {
+        "mean_f": 53.9,
+        "std_f": 3.2,
+        "mean_c": 12.2,
+        "std_c": 1.8,
+        "mode_c": 11,
+        "mode_f": 52,
+        "mode_prob": 20.5,
+        "pm1_prob": 55.3,
+        "best_pair": [
+          11,
+          12
+        ],
+        "best_pair_prob": 39.8,
+        "distribution_c": {
+          "8": 0.6,
+          "9": 3.1,
+          "10": 15.5,
+          "11": 20.5,
+          "12": 19.3,
+          "13": 16.1,
+          "14": 14.3,
+          "15": 5.6,
+          "16": 4.3,
+          "17": 0.6
+        },
+        "n_members": 161,
+        "target_date": "2026-03-16",
+        "per_model_mean_c": {
+          "ECMWF IFS": 13.5,
+          "GFS GEFS": 12.3,
+          "ICON": 10.8,
+          "GEM": 10.7,
+          "UKMO": 12.6
+        }
+      },
+      "2gg": {
+        "mean_f": 24.7,
+        "std_f": 3.0,
+        "mean_c": -4.0,
+        "std_c": 1.7,
+        "mode_c": -4,
+        "mode_f": 25,
+        "mode_prob": 24.8,
+        "pm1_prob": 59.6,
+        "best_pair": [
+          -5,
+          -4
+        ],
+        "best_pair_prob": 42.9,
+        "distribution_c": {
+          "-8": 0.6,
+          "-7": 5.6,
+          "-6": 15.5,
+          "-5": 18.0,
+          "-4": 24.8,
+          "-3": 16.8,
+          "-2": 9.9,
+          "-1": 7.5,
+          "0": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": -3.8,
+          "GFS GEFS": -4.3,
+          "ICON": -5.2,
+          "GEM": -2.8,
+          "UKMO": -3.3
+        }
+      }
+    },
+    "Wellington": {
+      "1gg": {
+        "mean_f": 65.9,
+        "std_f": 3.0,
+        "mean_c": 18.8,
+        "std_c": 1.7,
+        "mode_c": 18,
+        "mode_f": 64,
+        "mode_prob": 40.4,
+        "pm1_prob": 80.7,
+        "best_pair": [
+          18,
+          19
+        ],
+        "best_pair_prob": 70.2,
+        "distribution_c": {
+          "16": 2.5,
+          "17": 10.6,
+          "18": 40.4,
+          "19": 29.8,
+          "20": 5.6,
+          "22": 2.5,
+          "23": 6.8,
+          "24": 1.9
+        },
+        "n_members": 161,
+        "target_date": "2026-03-17",
+        "per_model_mean_c": {
+          "ECMWF IFS": 19.2,
+          "GFS GEFS": 17.9,
+          "ICON": 18.0,
+          "GEM": 17.5,
+          "UKMO": 23.0
+        }
+      },
+      "2gg": {
+        "mean_f": 65.8,
+        "std_f": 1.4,
+        "mean_c": 18.8,
+        "std_c": 0.8,
+        "mode_c": 19,
+        "mode_f": 66,
+        "mode_prob": 54.7,
+        "pm1_prob": 95.7,
+        "best_pair": [
+          18,
+          19
+        ],
+        "best_pair_prob": 85.1,
+        "distribution_c": {
+          "15": 0.6,
+          "17": 2.5,
+          "18": 30.4,
+          "19": 54.7,
+          "20": 10.6,
+          "21": 1.2
+        },
+        "n_members": 161,
+        "target_date": "2026-03-18",
+        "per_model_mean_c": {
+          "ECMWF IFS": 19.0,
+          "GFS GEFS": 18.0,
+          "ICON": 18.9,
+          "GEM": 19.0,
+          "UKMO": 19.2
+        }
+      }
+    }
+  }
+}
