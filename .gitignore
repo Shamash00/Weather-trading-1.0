@@ -1,2 +1,5 @@
 .claude
-_pycache_
+__pycache__/
+_cache_modelli/
+_gefs_cache/
+_gefs_storico/
