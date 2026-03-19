@@ -61,7 +61,27 @@ STATE_FILE = DATA_DIR / "bot_state.json"
 EXCEL_FILE = DATA_DIR / "dati_meteo.xlsx"
 EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
 OPTIMIZATION_FILE = BASE_DIR / "Ottimizzazione Ensemble Stagioni.xlsx"
+MODEL_STATS_FILE = BASE_DIR / "model_error_stats.pkl"
 LOG_FILE = DATA_DIR / "bot.log"
+
+# ── Tutti i modelli deterministici per il mixture model ──────────────────────
+
+ALL_DETERMINISTIC_MODELS = [
+    "best_match",
+    "bom_access_global",
+    "ecmwf_aifs025_single", "ecmwf_ifs025",
+    "gem_global", "gem_regional",
+    "gfs_global", "gfs_graphcast025", "gfs_hrrr",
+    "icon_d2", "icon_eu", "icon_global",
+    "jma_gsm",
+    "kma_gdps",
+    "knmi_harmonie_arome_europe", "knmi_harmonie_arome_netherlands",
+    "dmi_harmonie_arome_europe",
+    "meteofrance_arome_france", "meteofrance_arome_france_hd",
+    "meteofrance_arpege_europe", "meteofrance_arpege_world",
+    "metno_seamless",
+    "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
+]
 
 # ── Coordinate stazioni aeroportuali + timezone ──────────────────────────────
 
@@ -192,6 +212,33 @@ def load_deterministic_config() -> dict:
     _det_config_cache = config
     log.info(f"Config deterministici caricata: {len(config)} combinazioni citta/stagione")
     return config
+
+
+# ── Caricamento statistiche errore per mixture model ─────────────────────────
+
+_model_stats_cache = None
+
+def load_model_stats() -> dict:
+    """
+    Carica model_error_stats.pkl (pre-computato da precompute_model_stats.py).
+    Contiene: stats, iso_base, iso_enhanced per il mixture model.
+    """
+    global _model_stats_cache
+    if _model_stats_cache is not None:
+        return _model_stats_cache
+
+    if not MODEL_STATS_FILE.exists():
+        log.warning(f"Model stats non trovato: {MODEL_STATS_FILE} - mixture model disabilitato")
+        _model_stats_cache = {}
+        return _model_stats_cache
+
+    import pickle
+    with open(MODEL_STATS_FILE, "rb") as f:
+        _model_stats_cache = pickle.load(f)
+
+    n_entries = len(_model_stats_cache.get("stats", {}))
+    log.info(f"Model stats caricati: {n_entries} combinazioni modello/citta/stagione")
+    return _model_stats_cache
 
 
 # ── Modelli ensemble ─────────────────────────────────────────────────────────
@@ -930,6 +977,172 @@ def do_deterministic_forecast(city: str, target_date: str,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# MIXTURE MODEL - Probabilita calibrate multi-modello
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def mixture_bucket_probs(raw_forecasts: dict[str, float],
+                          city_opt: str, season: str,
+                          parsed_buckets: list[dict],
+                          lead_time: str = "D1") -> dict | None:
+    """
+    Calcola probabilita per bucket usando mixture-of-normals calibrato.
+
+    Per ogni modello con stats storici, costruisce N(forecast - bias, sigma²),
+    pesa con inverse-MAE, modula sigma per spread inter-modello,
+    e calibra con isotonic regression.
+
+    Ritorna dict con mixture_probs, dettagli, o None se stats non disponibili.
+    """
+    from scipy.stats import norm
+
+    model_stats_data = load_model_stats()
+    if not model_stats_data or "stats" not in model_stats_data:
+        return None
+
+    all_stats = model_stats_data["stats"]
+    iso_model = model_stats_data.get("iso_enhanced")
+
+    if not parsed_buckets:
+        return None
+
+    unit = parsed_buckets[0]["unit"] if parsed_buckets[0] else "C"
+
+    # Raccogli stats per ogni modello disponibile
+    models_used = []
+    for model_name, forecast_c in raw_forecasts.items():
+        if forecast_c is None:
+            continue
+        key = (city_opt, model_name, season, lead_time)
+        if key not in all_stats:
+            continue
+        s = all_stats[key]
+        models_used.append({
+            "model": model_name,
+            "forecast_c": forecast_c,
+            "bias": s["bias"],
+            "sigma": s["sigma"],
+            "mae": s["mae"],
+            "weight": s["weight"],
+            "mu_c": forecast_c - s["bias"],  # valore atteso temperatura reale (°C)
+        })
+
+    if len(models_used) < 3:
+        return None
+
+    # Normalizza pesi
+    total_w = sum(m["weight"] for m in models_used)
+    for m in models_used:
+        m["weight_norm"] = m["weight"] / total_w
+
+    # Spread inter-modello (dispersione dei valori attesi corretti)
+    corrected_means = [m["mu_c"] for m in models_used]
+    inter_model_spread = float(np.std(corrected_means))
+
+    # Sigma potenziata: sqrt(sigma_storico² + spread²)
+    for m in models_used:
+        m["sigma_enh"] = np.sqrt(m["sigma"]**2 + inter_model_spread**2)
+
+    # Media pesata
+    weighted_mean_c = sum(m["mu_c"] * m["weight_norm"] for m in models_used)
+
+    # Calcola probabilita per ogni bucket Polymarket
+    probs = {}
+    for b in parsed_buckets:
+        if b is None:
+            continue
+
+        p = 0.0
+        for m in models_used:
+            # Converti in unita del bucket se necessario
+            if unit == "F":
+                mu = m["mu_c"] * 9 / 5 + 32
+                sigma = m["sigma_enh"] * 9 / 5
+            else:
+                mu = m["mu_c"]
+                sigma = m["sigma_enh"]
+
+            sigma = max(sigma, 0.3)
+            w = m["weight_norm"]
+
+            if b["is_lower"]:
+                p += w * norm.cdf((b["high"] + 0.5 - mu) / sigma)
+            elif b["is_upper"]:
+                p += w * (1 - norm.cdf((b["low"] - 0.5 - mu) / sigma))
+            else:
+                p += w * (norm.cdf((b["high"] + 0.5 - mu) / sigma) -
+                          norm.cdf((b["low"] - 0.5 - mu) / sigma))
+
+        probs[b["label"]] = max(0.0, p)
+
+    # Normalizza
+    total = sum(probs.values())
+    if total > 0:
+        probs = {k: v / total for k, v in probs.items()}
+
+    # Calibrazione isotonica
+    probs_raw = dict(probs)
+    if iso_model is not None:
+        labels = list(probs.keys())
+        raw_p = np.array([probs[l] for l in labels])
+        cal_p = iso_model.predict(raw_p)
+        cal_p = cal_p / cal_p.sum()
+        probs = dict(zip(labels, cal_p))
+
+    return {
+        "mixture_probs": probs,
+        "mixture_probs_raw": probs_raw,
+        "n_models_used": len(models_used),
+        "inter_model_spread": inter_model_spread,
+        "weighted_mean_c": weighted_mean_c,
+        "models_detail": models_used,
+    }
+
+
+def do_mixture_forecast(city: str, target_date: str,
+                         parsed_buckets: list[dict]) -> dict | None:
+    """
+    Esegue il forecast mixture completo: scarica TUTTI i modelli deterministici
+    e calcola le probabilita calibrate per bucket.
+    """
+    opt_city = CITY_NAME_TO_OPT.get(city)
+    if not opt_city:
+        return None
+
+    # Verifica che model stats siano disponibili
+    model_stats_data = load_model_stats()
+    if not model_stats_data or "stats" not in model_stats_data:
+        log.debug(f"  Mixture: stats non disponibili")
+        return None
+
+    city_data = match_city(city)
+    if not city_data:
+        return None
+
+    month = int(target_date.split("-")[1])
+    season = get_season(month, opt_city)
+
+    # Scarica TUTTI i modelli deterministici
+    log.info(f"    Mixture: fetching {len(ALL_DETERMINISTIC_MODELS)} modelli deterministici...")
+    raw = fetch_deterministic_for_city(
+        city_data["lat"], city_data["lon"], target_date, ALL_DETERMINISTIC_MODELS)
+    log.info(f"    Mixture: {len(raw)}/{len(ALL_DETERMINISTIC_MODELS)} modelli ricevuti")
+
+    if len(raw) < 3:
+        log.info(f"    Mixture: troppi pochi modelli, skip")
+        return None
+
+    # Calcola probabilita mixture
+    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
+
+    if result:
+        log.info(f"    Mixture: {result['n_models_used']} modelli usati, "
+                 f"spread={result['inter_model_spread']:.2f}°C, "
+                 f"media={result['weighted_mean_c']:.1f}°C")
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SCHEDULING
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1329,8 +1542,9 @@ def init_combined_workbook():
 def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              snapshot_hour: int, snapshot_minute: int,
                              polymarket_buckets: list[dict],
-                             ensemble: dict, deterministic: dict | None):
-    """Scrive nel file Excel combinato con 3 fogli.
+                             ensemble: dict, deterministic: dict | None,
+                             mixture: dict | None = None):
+    """Scrive nel file Excel combinato con 4 fogli.
     Raggruppa i diversi orari (16:10, 20:10) nella stessa sezione per citta/data."""
     wb = init_combined_workbook()
     ora_snap = f"{snapshot_hour}:{snapshot_minute:02d}"
@@ -1341,8 +1555,12 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
     ens_probs = ensemble.get("combined_probs", {})
     det_probs = deterministic.get("gaussian_probs", {}) if deterministic else {}
     verde = deterministic.get("verde", 0) if deterministic else 0
+    mix_probs = mixture.get("mixture_probs", {}) if mixture else {}
 
-    if deterministic and det_probs:
+    # Prob Combinate: usa mixture se disponibile, altrimenti fallback
+    if mix_probs:
+        comb_probs = mix_probs
+    elif deterministic and det_probs:
         comb_probs = combine_probabilities(ens_probs, det_probs, verde)
     else:
         comb_probs = ens_probs
@@ -1498,14 +1716,25 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
     ens_info = f"N={ensemble.get('n_total', 0)} membri da {ensemble.get('n_models', 0)} modelli"
     _write_prob_sheet("Prob Ensemble", ens_probs, ens_info)
 
-    # ── Foglio 3: Probabilita Combinate ───────────────────────────────────
-    if deterministic and det_probs:
+    # ── Foglio 3: Probabilita Combinate (usa mixture se disponibile) ────
+    if mix_probs:
+        comb_info = (f"MIXTURE CALIBRATO | {mixture['n_models_used']} modelli | "
+                     f"spread={mixture['inter_model_spread']:.2f}°C | "
+                     f"media={mixture['weighted_mean_c']:.1f}°C")
+    elif deterministic and det_probs:
         alpha = 0.75 * verde / 100.0
         alpha = min(alpha, 0.95)
         comb_info = f"\u03b1={alpha:.2f} (75%\u00d7Verde) | Det\u00d7{alpha:.0%} + Ens\u00d7{1-alpha:.0%}"
     else:
         comb_info = "Solo ensemble (deterministici non disponibili)"
     _write_prob_sheet("Prob Combinate", comb_probs, comb_info)
+
+    # ── Foglio 4: Prob Mixture dettaglio (se disponibile) ────────────────
+    if mix_probs:
+        mix_raw = mixture.get("mixture_probs_raw", mix_probs)
+        mix_detail_info = (f"Pre-calibrazione | {mixture['n_models_used']} modelli | "
+                           f"spread={mixture['inter_model_spread']:.2f}°C")
+        _write_prob_sheet("Prob Mixture Raw", mix_raw, mix_detail_info)
 
     wb.save(EXCEL_COMBINED)
 
@@ -1523,7 +1752,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1621,9 +1850,13 @@ def do_snapshot(market: dict, state: dict):
     ensemble = calc_ensemble_stats(members, parsed_buckets)
     log.info(f"    Ensemble: {ensemble['n_total']} membri, {ensemble['n_models']} modelli")
 
-    # 3. Dati Deterministici
+    # 3. Dati Deterministici (subset ottimizzato - per backward compat)
     log.info(f"    Deterministici: fetching...")
     deterministic = do_deterministic_forecast(city, target_date, parsed_buckets)
+
+    # 3b. Mixture Model (tutti i modelli deterministici + calibrazione)
+    log.info(f"    Mixture model: avvio...")
+    mixture = do_mixture_forecast(city, target_date, parsed_buckets)
 
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -1632,7 +1865,7 @@ def do_snapshot(market: dict, state: dict):
 
     # 5. Scrivi Excel combinato
     write_combined_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
-                             buckets, ensemble, deterministic)
+                             buckets, ensemble, deterministic, mixture)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
@@ -1653,12 +1886,18 @@ def do_snapshot(market: dict, state: dict):
         log.info(f"    Forecast det: {deterministic['forecast_display']:.1f}°{deterministic['unit']} "
                  f"({deterministic['method']}, verde={deterministic['verde']:.1f}%)")
 
-    # Calcola probabilita combinate per il log
-    det_probs = deterministic.get("gaussian_probs", {}) if deterministic else {}
-    if deterministic and det_probs:
-        comb_probs = combine_probabilities(ens_probs, det_probs, deterministic["verde"])
+    # Probabilita finali: usa mixture se disponibile, altrimenti fallback al vecchio metodo
+    if mixture and mixture.get("mixture_probs"):
+        comb_probs = mixture["mixture_probs"]
+        prob_source = "MIXTURE"
     else:
-        comb_probs = ens_probs
+        det_probs = deterministic.get("gaussian_probs", {}) if deterministic else {}
+        if deterministic and det_probs:
+            comb_probs = combine_probabilities(ens_probs, det_probs, deterministic["verde"])
+            prob_source = "DET+ENS"
+        else:
+            comb_probs = ens_probs
+            prob_source = "ENS"
 
     for b in buckets:
         label = b["label"]
@@ -1667,7 +1906,7 @@ def do_snapshot(market: dict, state: dict):
         edge = (cp - pm) * 100
         if abs(edge) > 5:
             signal = "BUY" if edge > 0 else "SELL"
-            log.info(f"    >>> {label}: Polym={pm:.0%} Comb={cp:.0%} Edge={edge:+.1f}pp {signal}")
+            log.info(f"    >>> [{prob_source}] {label}: Polym={pm:.0%} Mio={cp:.0%} Edge={edge:+.1f}pp {signal}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

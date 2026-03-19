@@ -13,8 +13,9 @@ bot.log
 # File temporanei Excel
 ~$*.xlsx
 
-# Pickle
+# Pickle (tranne model stats per il bot)
 *.pkl
+!model_error_stats.pkl
 
 # File grandi non necessari per il bot
 Backtest*.xlsx
