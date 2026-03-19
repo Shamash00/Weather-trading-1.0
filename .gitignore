@@ -3,3 +3,26 @@ __pycache__/
 _cache_modelli/
 _gefs_cache/
 _gefs_storico/
+
+# File generati dal bot (non servono nel deploy)
+dati_meteo.xlsx
+dati_combinati.xlsx
+bot_state.json
+bot.log
+
+# File temporanei Excel
+~$*.xlsx
+
+# Pickle
+*.pkl
+
+# File grandi non necessari per il bot
+Backtest*.xlsx
+Confronto*.xlsx
+Coordinate*.xlsx
+Ensemble*.xlsx
+GEFS*.xlsx
+Opportunita*.xlsx
+Polymarket*.xlsx
+Previsione*.xlsx
+Previsioni*.xlsx
