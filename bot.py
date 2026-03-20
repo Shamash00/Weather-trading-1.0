@@ -186,7 +186,8 @@ def load_deterministic_config() -> dict:
         models_str = ws.cell(r, 11).value or ""
         bc_str = ws.cell(r, 12).value or "Nessuna"
 
-        models = [m.strip() for m in models_str.split(",") if m.strip()]
+        models = [m.strip() for m in models_str.split(",")
+                  if m.strip() and m.strip() != "cma_grapes_global"]
 
         # Parsa correzioni BC: "icon_eu: -1, gem_global: +0" -> dict
         corrections = {}
@@ -199,6 +200,9 @@ def load_deterministic_config() -> dict:
                         corrections[name.strip()] = int(val.strip().replace("+", ""))
                     except ValueError:
                         corrections[name.strip()] = 0
+
+        # Rimuovi correzioni BC per modelli filtrati
+        corrections = {k: v for k, v in corrections.items() if k != "cma_grapes_global"}
 
         config[(city, season)] = {
             "method": method,
