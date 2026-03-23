@@ -590,6 +590,204 @@ def check_resolutions(state: dict) -> list[dict]:
     return results
 
 
+def recheck_past_resolutions(state: dict):
+    """Ri-verifica tutte le risoluzioni passate con la soglia attuale (0.995).
+    Rimuove dallo state e dall'Excel quelle che non sono piu' valide,
+    cosi' il ciclo normale potra' ricalcolarle quando saranno davvero risolte."""
+    resolutions_done = state.get("resolutions_done", {})
+    if not resolutions_done:
+        log.info("Nessuna risoluzione passata da ri-verificare.")
+        return
+
+    log.info(f"Ri-verifica di {len(resolutions_done)} risoluzioni passate...")
+
+    open_events = fetch_temp_events(closed=False)
+    closed_events = fetch_temp_events(closed=True)
+    all_events = open_events + closed_events
+
+    # Mappa key -> evento per lookup veloce
+    event_map = {}
+    for event in all_events:
+        title = event.get("title", "")
+        city = city_from_title(title)
+        event_end = event.get("endDate", "")
+        target_date = date_from_title(title, end_date_hint=event_end)
+        if city and target_date:
+            key = f"{city}_{target_date}"
+            event_map[key] = event
+
+    keys_to_remove = []
+    keys_to_update = {}
+
+    for key, old_winner in list(resolutions_done.items()):
+        event = event_map.get(key)
+        if not event:
+            # Evento non trovato nell'API, lo lasciamo com'e'
+            continue
+
+        # Ri-verifica con la soglia attuale
+        new_winner = None
+        for m in event.get("markets") or []:
+            try:
+                outcome_prices = json.loads(m.get("outcomePrices", "[]"))
+                if outcome_prices and float(outcome_prices[0]) >= 0.995:
+                    new_winner = m.get("groupItemTitle") or m.get("question", "")
+                    break
+            except (json.JSONDecodeError, ValueError, IndexError):
+                continue
+
+        if new_winner is None:
+            # Non supera piu' la soglia: rimuovere
+            keys_to_remove.append(key)
+            log.info(f"  RIMOSSA risoluzione {key} (vecchio winner: {old_winner}) — sotto soglia 0.995")
+        elif new_winner.strip() != old_winner.strip():
+            # Winner diverso: aggiornare
+            keys_to_update[key] = new_winner
+            log.info(f"  AGGIORNATA risoluzione {key}: {old_winner} -> {new_winner}")
+
+    # Applica rimozioni
+    for key in keys_to_remove:
+        del resolutions_done[key]
+        city, target_date = key.rsplit("_", 1)
+        _remove_resolution_from_excel(city, target_date)
+        _remove_resolution_from_combined_excel(city, target_date)
+
+    # Applica aggiornamenti
+    for key, new_winner in keys_to_update.items():
+        resolutions_done[key] = new_winner
+        city, target_date = key.rsplit("_", 1)
+        _update_resolution_in_excel(city, target_date, new_winner)
+        _update_resolution_in_combined_excel(city, target_date, new_winner)
+
+    if keys_to_remove or keys_to_update:
+        save_state(state)
+        log.info(f"  Ri-verifica completata: {len(keys_to_remove)} rimosse, {len(keys_to_update)} aggiornate.")
+    else:
+        log.info("  Ri-verifica completata: tutte le risoluzioni sono corrette.")
+
+
+def _remove_resolution_from_excel(city: str, target_date: str):
+    """Rimuove una riga di risoluzione dal foglio Risoluzioni dell'Excel principale."""
+    if not EXCEL_FILE.exists():
+        return
+    try:
+        wb = openpyxl.load_workbook(EXCEL_FILE)
+    except Exception:
+        return
+    if "Risoluzioni" not in wb.sheetnames:
+        return
+    ws = wb["Risoluzioni"]
+    for r in range(ws.max_row, 1, -1):
+        if ws.cell(r, 1).value == city and ws.cell(r, 2).value == target_date:
+            ws.delete_rows(r, 1)
+            break
+    try:
+        wb.save(EXCEL_FILE)
+    except Exception as e:
+        log.warning(f"Errore salvataggio Excel dopo rimozione risoluzione: {e}")
+
+
+def _update_resolution_in_excel(city: str, target_date: str, new_winner: str):
+    """Aggiorna il bucket vincente nel foglio Risoluzioni dell'Excel principale."""
+    if not EXCEL_FILE.exists():
+        return
+    try:
+        wb = openpyxl.load_workbook(EXCEL_FILE)
+    except Exception:
+        return
+    if "Risoluzioni" not in wb.sheetnames:
+        return
+    ws = wb["Risoluzioni"]
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(r, 1).value == city and ws.cell(r, 2).value == target_date:
+            ws.cell(r, 3, new_winner)
+            ws.cell(r, 4, datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
+            break
+    try:
+        wb.save(EXCEL_FILE)
+    except Exception as e:
+        log.warning(f"Errore salvataggio Excel dopo aggiornamento risoluzione: {e}")
+
+
+def _remove_resolution_from_combined_excel(city: str, target_date: str):
+    """Rimuove le righe RISOLUZIONE dal file Excel combinato."""
+    if not EXCEL_COMBINED.exists():
+        return
+    try:
+        wb = openpyxl.load_workbook(EXCEL_COMBINED)
+    except Exception:
+        return
+    section_title = f"{city} \u2014 {target_date}"
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw"]:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        for r in range(ws.max_row, 0, -1):
+            if ws.cell(r, 1).value == "RISOLUZIONE":
+                # Verifica che sia nella sezione giusta cercando il titolo sopra
+                for r2 in range(r - 1, 0, -1):
+                    cell_val = ws.cell(r2, 1).value
+                    if isinstance(cell_val, str) and " \u2014 " in cell_val:
+                        if cell_val == section_title:
+                            ws.delete_rows(r, 1)
+                        break
+    try:
+        wb.save(EXCEL_COMBINED)
+    except Exception as e:
+        log.warning(f"Errore salvataggio combinato dopo rimozione risoluzione: {e}")
+
+
+def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner: str):
+    """Aggiorna il bucket vincente nelle righe RISOLUZIONE del file Excel combinato."""
+    if not EXCEL_COMBINED.exists():
+        return
+    try:
+        wb = openpyxl.load_workbook(EXCEL_COMBINED)
+    except Exception:
+        return
+    section_title = f"{city} \u2014 {target_date}"
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw"]:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        for r in range(ws.max_row, 0, -1):
+            if ws.cell(r, 1).value == "RISOLUZIONE":
+                # Verifica che sia nella sezione giusta
+                in_section = False
+                for r2 in range(r - 1, 0, -1):
+                    cell_val = ws.cell(r2, 1).value
+                    if isinstance(cell_val, str) and " \u2014 " in cell_val:
+                        if cell_val == section_title:
+                            in_section = True
+                        break
+                if not in_section:
+                    continue
+                # Leggi bucket labels dall'header (sezione_row + 1)
+                header_row = None
+                for r2 in range(r - 1, 0, -1):
+                    cell_val = ws.cell(r2, 1).value
+                    if isinstance(cell_val, str) and " \u2014 " in cell_val:
+                        header_row = r2 + 1
+                        break
+                if header_row:
+                    col = 4
+                    while ws.cell(header_row, col).value is not None:
+                        lbl = str(ws.cell(header_row, col).value)
+                        if lbl.strip() == new_winner.strip():
+                            ws.cell(r, col, "VINCENTE")
+                            ws.cell(r, col).fill = GREEN_FILL
+                            ws.cell(r, col).font = Font(bold=True, color="006100", size=10)
+                        else:
+                            ws.cell(r, col, "")
+                            ws.cell(r, col).fill = PatternFill("solid", fgColor="E2EFDA")
+                            ws.cell(r, col).font = Font(bold=True, size=10)
+                        col += 1
+    try:
+        wb.save(EXCEL_COMBINED)
+    except Exception as e:
+        log.warning(f"Errore salvataggio combinato dopo aggiornamento risoluzione: {e}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ENSEMBLE - FETCH & CALC
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2036,6 +2234,12 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
     state = load_state()
     last_event_refresh = 0
     cached_markets = []
+
+    # Ri-verifica risoluzioni passate con la soglia attuale all'avvio
+    try:
+        recheck_past_resolutions(state)
+    except Exception as e:
+        log.error(f"Errore ri-verifica risoluzioni: {e}")
 
     hours_str = ", ".join(f"{h}:{m:02d}" for h, m in hours)
     log.info(f"Bot avviato | snapshot alle {hours_str} locali | check ogni {CHECK_INTERVAL}s")
