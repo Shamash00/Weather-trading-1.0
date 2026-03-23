@@ -590,17 +590,48 @@ def check_resolutions(state: dict) -> list[dict]:
     return results
 
 
+
+# Correzioni manuali per risoluzioni sbagliate non piu' verificabili via API.
+# Formato: {"citta_data": "bucket vincente corretto"}
+# Rimuovere le voci dopo che sono state applicate con successo.
+RESOLUTION_OVERRIDES = {
+    "Wellington_2026-03-23": "19°C",
+}
+
+
 def recheck_past_resolutions(state: dict):
     """Ri-verifica tutte le risoluzioni passate con la soglia attuale (0.995).
     Rimuove dallo state e dall'Excel quelle che non sono piu' valide,
-    cosi' il ciclo normale potra' ricalcolarle quando saranno davvero risolte."""
+    cosi' il ciclo normale potra' ricalcolarle quando saranno davvero risolte.
+    Applica anche le correzioni manuali da RESOLUTION_OVERRIDES."""
     resolutions_done = state.get("resolutions_done", {})
-    if not resolutions_done:
+    if not resolutions_done and not RESOLUTION_OVERRIDES:
         log.info("Nessuna risoluzione passata da ri-verificare.")
         return
 
     log.info(f"Ri-verifica di {len(resolutions_done)} risoluzioni passate...")
 
+    # 1. Applica correzioni manuali (RESOLUTION_OVERRIDES)
+    keys_to_update = {}
+    for key, correct_winner in RESOLUTION_OVERRIDES.items():
+        old_winner = resolutions_done.get(key)
+        if old_winner is None:
+            continue
+        if old_winner.strip() != correct_winner.strip():
+            keys_to_update[key] = correct_winner
+            log.info(f"  OVERRIDE: {key}: {old_winner} -> {correct_winner}")
+
+    for key, new_winner in keys_to_update.items():
+        resolutions_done[key] = new_winner
+        city, target_date = key.rsplit("_", 1)
+        _update_resolution_in_excel(city, target_date, new_winner)
+        _update_resolution_in_combined_excel(city, target_date, new_winner)
+
+    if keys_to_update:
+        save_state(state)
+        log.info(f"  Override applicati: {len(keys_to_update)}")
+
+    # 2. Ri-verifica via API per eventi ancora disponibili
     open_events = fetch_temp_events(closed=False)
     closed_events = fetch_temp_events(closed=True)
     all_events = open_events + closed_events
@@ -617,7 +648,7 @@ def recheck_past_resolutions(state: dict):
             event_map[key] = event
 
     keys_to_remove = []
-    keys_to_update = {}
+    keys_to_update_api = {}
 
     for key, old_winner in list(resolutions_done.items()):
         event = event_map.get(key)
@@ -642,7 +673,7 @@ def recheck_past_resolutions(state: dict):
             log.info(f"  RIMOSSA risoluzione {key} (vecchio winner: {old_winner}) — sotto soglia 0.995")
         elif new_winner.strip() != old_winner.strip():
             # Winner diverso: aggiornare
-            keys_to_update[key] = new_winner
+            keys_to_update_api[key] = new_winner
             log.info(f"  AGGIORNATA risoluzione {key}: {old_winner} -> {new_winner}")
 
     # Applica rimozioni
@@ -652,18 +683,18 @@ def recheck_past_resolutions(state: dict):
         _remove_resolution_from_excel(city, target_date)
         _remove_resolution_from_combined_excel(city, target_date)
 
-    # Applica aggiornamenti
-    for key, new_winner in keys_to_update.items():
+    # Applica aggiornamenti da API
+    for key, new_winner in keys_to_update_api.items():
         resolutions_done[key] = new_winner
         city, target_date = key.rsplit("_", 1)
         _update_resolution_in_excel(city, target_date, new_winner)
         _update_resolution_in_combined_excel(city, target_date, new_winner)
 
-    if keys_to_remove or keys_to_update:
+    if keys_to_remove or keys_to_update_api:
         save_state(state)
-        log.info(f"  Ri-verifica completata: {len(keys_to_remove)} rimosse, {len(keys_to_update)} aggiornate.")
+        log.info(f"  Ri-verifica API completata: {len(keys_to_remove)} rimosse, {len(keys_to_update_api)} aggiornate.")
     else:
-        log.info("  Ri-verifica completata: tutte le risoluzioni sono corrette.")
+        log.info("  Ri-verifica API completata: tutte le risoluzioni sono corrette.")
 
 
 def _remove_resolution_from_excel(city: str, target_date: str):
