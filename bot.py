@@ -572,7 +572,7 @@ def check_resolutions(state: dict) -> list[dict]:
         for m in event.get("markets") or []:
             try:
                 outcome_prices = json.loads(m.get("outcomePrices", "[]"))
-                if outcome_prices and float(outcome_prices[0]) >= 0.95:
+                if outcome_prices and float(outcome_prices[0]) >= 0.995:
                     winner = m.get("groupItemTitle") or m.get("question", "")
                     break
             except (json.JSONDecodeError, ValueError, IndexError):
