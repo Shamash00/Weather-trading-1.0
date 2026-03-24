@@ -120,10 +120,6 @@ CITY_DATA = {
     "Milan":        {"lat": 45.630606,  "lon": 8.728111,    "tz": "Europe/Rome"},
     "Milano":       {"lat": 45.630606,  "lon": 8.728111,    "tz": "Europe/Rome"},
     "San Francisco":{"lat": 37.61962,   "lon": -122.36562,  "tz": "America/Los_Angeles"},
-    "Shenzhen":     {"lat": 22.639258,  "lon": 113.810664,  "tz": "Asia/Shanghai"},
-    "Taipei":       {"lat": 25.077731,  "lon": 121.232822,  "tz": "Asia/Taipei"},
-    "Warsaw":       {"lat": 52.16575,   "lon": 20.967122,   "tz": "Europe/Warsaw"},
-    "Wuhan":        {"lat": 30.783758,  "lon": 114.2081,    "tz": "Asia/Shanghai"},
 }
 
 # ── Mapping nomi citta: bot -> file ottimizzazione ──────────────────────────
@@ -141,8 +137,7 @@ CITY_NAME_TO_OPT = {
     "Austin": "Austin", "Beijing": "Beijing", "Chengdu": "Chengdu",
     "Chongqing": "Chongqing", "Denver": "Denver", "Houston": "Houston",
     "Madrid": "Madrid", "Milan": "Milano", "Milano": "Milano",
-    "San Francisco": "SanFrancisco", "Shenzhen": "Shenzhen",
-    "Taipei": "Taipei", "Warsaw": "Warsaw", "Wuhan": "Wuhan",
+    "San Francisco": "SanFrancisco",
 }
 
 # ── Citta emisfero sud (stagioni invertite) ─────────────────────────────────
