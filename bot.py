@@ -29,6 +29,7 @@ import argparse
 import numpy as np
 import os
 import re
+import subprocess
 import sys
 import threading
 import traceback
@@ -63,6 +64,9 @@ EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
 OPTIMIZATION_FILE = BASE_DIR / "Ottimizzazione Ensemble Stagioni.xlsx"
 MODEL_STATS_FILE = BASE_DIR / "model_error_stats.pkl"
 LOG_FILE = DATA_DIR / "bot.log"
+
+GIT_AUTO_PUSH = os.environ.get("GIT_AUTO_PUSH", "1") == "1"
+GIT_PUSH_FILES = ["dati_combinati.xlsx", "dati_meteo.xlsx", "bot_state.json"]
 
 # ── Tutti i modelli deterministici per il mixture model ──────────────────────
 
@@ -2222,6 +2226,59 @@ def show_status(state: dict, hours: list[tuple[int, int]]):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# GIT AUTO-PUSH
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_last_git_push = 0
+
+def git_push_data():
+    """Committa e pusha i file dati su GitHub per sync automatico."""
+    global _last_git_push
+    if not GIT_AUTO_PUSH:
+        return
+
+    # Max 1 push ogni 5 minuti per evitare spam
+    now = time_mod.time()
+    if now - _last_git_push < 300:
+        return
+
+    try:
+        cwd = str(DATA_DIR)
+        # Aggiungi solo i file dati (non tutto il repo)
+        files_to_add = [f for f in GIT_PUSH_FILES
+                        if (DATA_DIR / f).exists()]
+        if not files_to_add:
+            return
+
+        subprocess.run(["git", "add"] + files_to_add,
+                       cwd=cwd, capture_output=True, timeout=30)
+
+        # Check se ci sono cambiamenti staged
+        result = subprocess.run(["git", "diff", "--cached", "--quiet"],
+                                cwd=cwd, capture_output=True, timeout=10)
+        if result.returncode == 0:
+            return  # Niente da committare
+
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        subprocess.run(
+            ["git", "commit", "-m", f"Auto-update dati bot {ts}"],
+            cwd=cwd, capture_output=True, timeout=30)
+
+        push_result = subprocess.run(
+            ["git", "push"],
+            cwd=cwd, capture_output=True, timeout=60)
+
+        if push_result.returncode == 0:
+            _last_git_push = now
+            log.info("Git push dati completato")
+        else:
+            log.warning(f"Git push fallito: {push_result.stderr.decode()[:200]}")
+
+    except Exception as e:
+        log.debug(f"Git push errore: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN LOOP
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2270,6 +2327,9 @@ def run_cycle(state: dict, hours: list[int], days_ahead: int) -> int:
             actions += 1
     except Exception as e:
         log.error(f"  Errore check risoluzioni: {e}")
+
+    if actions > 0:
+        git_push_data()
 
     return actions
 
@@ -2339,6 +2399,10 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
                     actions += 1
             except Exception as e:
                 log.error(f"  Errore check risoluzioni: {e}")
+
+            # 3b. Git push se ci sono state azioni
+            if actions > 0:
+                git_push_data()
 
             # 4. Info prossimo snapshot (solo se nessuna azione e non primo ciclo)
             if actions == 0 and cycle > 0 and cycle % 10 == 0:
