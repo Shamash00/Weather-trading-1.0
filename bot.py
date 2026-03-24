@@ -2348,6 +2348,13 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
     except Exception as e:
         log.error(f"Errore ri-verifica risoluzioni: {e}")
 
+    # Push forzato all'avvio per sincronizzare i dati storici
+    if GIT_AUTO_PUSH:
+        log.info("Git push iniziale dei dati esistenti...")
+        global _last_git_push
+        _last_git_push = 0  # Forza il push ignorando il cooldown
+        git_push_data()
+
     hours_str = ", ".join(f"{h}:{m:02d}" for h, m in hours)
     log.info(f"Bot avviato | snapshot alle {hours_str} locali | check ogni {CHECK_INTERVAL}s")
     log.info(f"Excel: {EXCEL_FILE}")
