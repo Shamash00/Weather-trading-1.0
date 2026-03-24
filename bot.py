@@ -109,6 +109,21 @@ CITY_DATA = {
     "Tokyo":        {"lat": 35.552258,  "lon": 139.779694,  "tz": "Asia/Tokyo"},
     "Toronto":      {"lat": 43.677223,  "lon": -79.630556,  "tz": "America/Toronto"},
     "Wellington":   {"lat": -41.333333, "lon": 174.8,       "tz": "Pacific/Auckland"},
+    # Nuove città
+    "Austin":       {"lat": 30.18311,   "lon": -97.67989,   "tz": "America/Chicago"},
+    "Beijing":      {"lat": 40.080111,  "lon": 116.584556,  "tz": "Asia/Shanghai"},
+    "Chengdu":      {"lat": 30.578528,  "lon": 103.947086,  "tz": "Asia/Shanghai"},
+    "Chongqing":    {"lat": 29.719217,  "lon": 106.641678,  "tz": "Asia/Shanghai"},
+    "Denver":       {"lat": 39.84657,   "lon": -104.65623,  "tz": "America/Denver"},
+    "Houston":      {"lat": 29.64586,   "lon": -95.28212,   "tz": "America/Chicago"},
+    "Madrid":       {"lat": 40.493556,  "lon": -3.566764,   "tz": "Europe/Madrid"},
+    "Milan":        {"lat": 45.630606,  "lon": 8.728111,    "tz": "Europe/Rome"},
+    "Milano":       {"lat": 45.630606,  "lon": 8.728111,    "tz": "Europe/Rome"},
+    "San Francisco":{"lat": 37.61962,   "lon": -122.36562,  "tz": "America/Los_Angeles"},
+    "Shenzhen":     {"lat": 22.639258,  "lon": 113.810664,  "tz": "Asia/Shanghai"},
+    "Taipei":       {"lat": 25.077731,  "lon": 121.232822,  "tz": "Asia/Taipei"},
+    "Warsaw":       {"lat": 52.16575,   "lon": 20.967122,   "tz": "Europe/Warsaw"},
+    "Wuhan":        {"lat": 30.783758,  "lon": 114.2081,    "tz": "Asia/Shanghai"},
 }
 
 # ── Mapping nomi citta: bot -> file ottimizzazione ──────────────────────────
@@ -122,6 +137,12 @@ CITY_NAME_TO_OPT = {
     "Seattle": "Seattle", "Seoul": "Seoul", "Shanghai": "Shanghai",
     "Singapore": "Singapore", "Tel Aviv": "TelAviv", "Tokyo": "Tokyo",
     "Toronto": "Toronto", "Wellington": "Wellington",
+    # Nuove città
+    "Austin": "Austin", "Beijing": "Beijing", "Chengdu": "Chengdu",
+    "Chongqing": "Chongqing", "Denver": "Denver", "Houston": "Houston",
+    "Madrid": "Madrid", "Milan": "Milano", "Milano": "Milano",
+    "San Francisco": "SanFrancisco", "Shenzhen": "Shenzhen",
+    "Taipei": "Taipei", "Warsaw": "Warsaw", "Wuhan": "Wuhan",
 }
 
 # ── Citta emisfero sud (stagioni invertite) ─────────────────────────────────
