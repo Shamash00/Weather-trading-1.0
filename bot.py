@@ -45,7 +45,14 @@ from openpyxl.utils import get_column_letter
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SNAPSHOT_HOURS = [(16, 10), (17, 10), (18, 10), (20, 10)]  # 16:10, 17:10, 18:10, 20:10 locali
+# Snapshot: lista di tuple (ora, minuto, mode)
+# mode="utc"   -> orario UTC fisso, uguale per tutte le citta
+# mode="local"  -> orario locale della citta target
+SNAPSHOT_HOURS = [
+    (17, 10, "utc"),    # 17:10 UTC fisso — 9/15 modelli 12Z, massimo edge
+    (18, 10, "utc"),    # 18:10 UTC fisso — 13/15 modelli 12Z, include ECMWF
+    (20, 10, "utc"),    # 20:10 UTC fisso — 15/15 modelli 12Z, benchmark
+]
 CHECK_INTERVAL = 60         # Secondi tra ogni check del loop principale
 EVENT_REFRESH_INTERVAL = 1800  # Refresh lista mercati ogni 30 minuti
 SNAPSHOT_WINDOW = 7200      # Finestra di cattura: se il bot parte in ritardo, cattura
@@ -1404,37 +1411,47 @@ def do_mixture_forecast(city: str, target_date: str,
 # SCHEDULING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def get_snapshot_utc(city: str, target_date: str, hour: int, minute: int = 0) -> datetime | None:
+def get_snapshot_utc(city: str, target_date: str, hour: int, minute: int = 0,
+                     mode: str = "local") -> datetime | None:
     """
     Calcola il momento UTC dello snapshot per una citta.
-    Snapshot = (target_date - 1 giorno) alle hour:minute nel fuso orario della citta.
+    mode="local": hour:minute nel fuso orario della citta (giorno prima del target)
+    mode="utc":   hour:minute UTC fisso (giorno prima del target)
     """
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    tz = ZoneInfo(city_data["tz"])
     target = datetime.strptime(target_date, "%Y-%m-%d").date()
     snapshot_day = target - timedelta(days=1)
 
+    if mode == "utc":
+        return datetime(snapshot_day.year, snapshot_day.month, snapshot_day.day,
+                        hour, minute, 0, tzinfo=timezone.utc)
+
+    # mode == "local"
+    city_data = match_city(city)
+    if not city_data:
+        return None
+    tz = ZoneInfo(city_data["tz"])
     snapshot_local = datetime(snapshot_day.year, snapshot_day.month, snapshot_day.day,
                               hour, minute, 0, tzinfo=tz)
     return snapshot_local.astimezone(timezone.utc)
 
 
-def get_pending_snapshots(markets: list[dict], state: dict, hours: list[tuple[int, int]]) -> list[dict]:
-    """Trova mercati per cui e' ora di fare lo snapshot (per ciascun orario)."""
+def get_pending_snapshots(markets: list[dict], state: dict, hours: list) -> list[dict]:
+    """Trova mercati per cui e' ora di fare lo snapshot (per ciascun orario).
+    hours: lista di tuple (hour, minute, mode) dove mode e' 'utc' o 'local'."""
     now = datetime.now(timezone.utc)
     pending = []
 
     for mkt in markets:
-        for hour, minute in hours:
-            key = f"{mkt['city']}_{mkt['target_date']}_h{hour}{minute:02d}"
+        for entry_hours in hours:
+            hour, minute = entry_hours[0], entry_hours[1]
+            mode = entry_hours[2] if len(entry_hours) > 2 else "local"
+            mode_tag = "u" if mode == "utc" else ""
+            key = f"{mkt['city']}_{mkt['target_date']}_h{hour}{minute:02d}{mode_tag}"
 
             if key in state.get("snapshots_done", {}):
                 continue
 
-            snap_utc = get_snapshot_utc(mkt["city"], mkt["target_date"], hour, minute)
+            snap_utc = get_snapshot_utc(mkt["city"], mkt["target_date"], hour, minute, mode)
             if snap_utc is None:
                 continue
 
@@ -1446,6 +1463,7 @@ def get_pending_snapshots(markets: list[dict], state: dict, hours: list[tuple[in
                 entry["key"] = key
                 entry["snapshot_hour"] = hour
                 entry["snapshot_minute"] = minute
+                entry["snapshot_mode"] = mode
                 pending.append(entry)
 
     return pending
@@ -1518,7 +1536,7 @@ def init_workbook() -> openpyxl.Workbook:
 def write_snapshot_to_excel(city: str, target_date: str, snapshot_time: str,
                              snapshot_hour: int, snapshot_minute: int,
                              polymarket_buckets: list[dict],
-                             ensemble: dict):
+                             ensemble: dict, snapshot_mode: str = "local"):
     """Scrive i dati di uno snapshot nel file Excel."""
     wb = init_workbook()
 
@@ -1532,7 +1550,8 @@ def write_snapshot_to_excel(city: str, target_date: str, snapshot_time: str,
     ws1 = get_or_create_sheet(wb, "Confronto", headers_confronto)
 
     # Deduplicazione Confronto: rimuovi righe esistenti per stessa citta/data/ora
-    ora_snap_tag = f"{snapshot_hour}:{snapshot_minute:02d}"
+    utc_suffix = " UTC" if snapshot_mode == "utc" else ""
+    ora_snap_tag = f"{snapshot_hour}:{snapshot_minute:02d}{utc_suffix}"
     rows_to_del = []
     for r in range(2, ws1.max_row + 1):
         if (ws1.cell(r, 1).value == city and
@@ -1674,7 +1693,7 @@ def write_snapshot_to_excel(city: str, target_date: str, snapshot_time: str,
         ws4 = wb[sheet_name]
 
     # Deduplicazione: controlla se esiste gia' una sezione per questa citta/data/ora
-    ora_snap_check = f"{snapshot_hour}:{snapshot_minute:02d}"
+    ora_snap_check = f"{snapshot_hour}:{snapshot_minute:02d}{utc_suffix}"
     section_title = f"{city} — {target_date}"
     already_exists = False
     for r in range(1, ws4.max_row + 1):
@@ -1709,7 +1728,7 @@ def write_snapshot_to_excel(city: str, target_date: str, snapshot_time: str,
     _style_header(ws4, row4, n_cols + 1)
     row4 += 1
 
-    ora_snap = f"{snapshot_hour}:{snapshot_minute:02d}"
+    ora_snap = f"{snapshot_hour}:{snapshot_minute:02d}{utc_suffix}"
 
     # Riga Polymarket
     ws4.cell(row4, 1, "POLYMARKET")
@@ -1801,11 +1820,13 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              snapshot_hour: int, snapshot_minute: int,
                              polymarket_buckets: list[dict],
                              ensemble: dict, deterministic: dict | None,
-                             mixture: dict | None = None):
+                             mixture: dict | None = None,
+                             snapshot_mode: str = "local"):
     """Scrive nel file Excel combinato con 4 fogli.
-    Raggruppa i diversi orari (16:10, 20:10) nella stessa sezione per citta/data."""
+    Raggruppa i diversi orari nella stessa sezione per citta/data."""
     wb = init_combined_workbook()
-    ora_snap = f"{snapshot_hour}:{snapshot_minute:02d}"
+    utc_suffix = " UTC" if snapshot_mode == "utc" else ""
+    ora_snap = f"{snapshot_hour}:{snapshot_minute:02d}{utc_suffix}"
     bucket_labels = [b["label"] for b in polymarket_buckets]
     n_buckets = len(bucket_labels)
     n_cols = 3 + n_buckets  # Fonte, Info, Ora + bucket columns
@@ -2089,13 +2110,15 @@ def do_snapshot(market: dict, state: dict):
     key = market["key"]
     snapshot_hour = market.get("snapshot_hour", 20)
     snapshot_minute = market.get("snapshot_minute", 10)
+    snapshot_mode = market.get("snapshot_mode", "local")
 
     city_data = match_city(city)
     if not city_data:
         log.warning(f"  Coordinate non trovate per: {city}")
         return
 
-    log.info(f"  SNAPSHOT [{snapshot_hour}:{snapshot_minute:02d}]: {city} - {target_date}")
+    mode_label = " UTC" if snapshot_mode == "utc" else ""
+    log.info(f"  SNAPSHOT [{snapshot_hour}:{snapshot_minute:02d}{mode_label}]: {city} - {target_date}")
 
     # 1. Dati Polymarket (gia' nei buckets del mercato)
     buckets = market["buckets"]
@@ -2118,12 +2141,13 @@ def do_snapshot(market: dict, state: dict):
 
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute, buckets, ensemble)
+    write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
+                             buckets, ensemble, snapshot_mode)
     log.info(f"    Excel dati_meteo aggiornato")
 
     # 5. Scrivi Excel combinato
     write_combined_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
-                             buckets, ensemble, deterministic, mixture)
+                             buckets, ensemble, deterministic, mixture, snapshot_mode)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
@@ -2360,8 +2384,12 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
         _last_git_push = 0  # Forza il push ignorando il cooldown
         git_push_data()
 
-    hours_str = ", ".join(f"{h}:{m:02d}" for h, m in hours)
-    log.info(f"Bot avviato | snapshot alle {hours_str} locali | check ogni {CHECK_INTERVAL}s")
+    def _fmt_hour(entry):
+        h, m = entry[0], entry[1]
+        mode = entry[2] if len(entry) > 2 else "local"
+        return f"{h}:{m:02d}{' UTC' if mode == 'utc' else ' loc'}"
+    hours_str = ", ".join(_fmt_hour(e) for e in hours)
+    log.info(f"Bot avviato | snapshot alle {hours_str} | check ogni {CHECK_INTERVAL}s")
     log.info(f"Excel: {EXCEL_FILE}")
     log.info(f"State: {STATE_FILE}")
 
@@ -2524,22 +2552,28 @@ def start_web_server():
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    default_hours = ",".join(f"{h}:{m:02d}" for h, m in SNAPSHOT_HOURS)
+    def _fmt_default(entry):
+        h, m = entry[0], entry[1]
+        mode = entry[2] if len(entry) > 2 else "local"
+        suffix = "u" if mode == "utc" else ""
+        return f"{h}:{m:02d}{suffix}"
+    default_hours = ",".join(_fmt_default(e) for e in SNAPSHOT_HOURS)
+
     parser = argparse.ArgumentParser(
         description="Polymarket Weather Trading Bot - Daemon 24/7",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Esempi:
-  python bot.py                    # avvia daemon, snapshot alle 16:10 e 20:10 locali
-  python bot.py --hours 18:00,22:30  # snapshot alle 18:00 e 22:30 locali
-  python bot.py --hours 20:10      # solo snapshot alle 20:10
-  python bot.py --once              # esegui un solo ciclo
-  python bot.py --status            # mostra stato corrente
-  python bot.py --days 5            # mercati fino a 5 giorni avanti
+  python bot.py                       # avvia con orari default (UTC fissi)
+  python bot.py --hours 17:10u,20:10u # snapshot alle 17:10 e 20:10 UTC
+  python bot.py --hours 16:10,20:10   # snapshot alle 16:10 e 20:10 locali
+  python bot.py --once                # esegui un solo ciclo
+  python bot.py --status              # mostra stato corrente
+  Suffisso 'u' = UTC fisso, senza suffisso = ora locale della citta
         """,
     )
     parser.add_argument("--hours", type=str, default=default_hours,
-                        help=f"Orari locali snapshot HH:MM separati da virgola (default: {default_hours})")
+                        help=f"Orari snapshot HH:MM[u] separati da virgola, u=UTC (default: {default_hours})")
     parser.add_argument("--once", action="store_true",
                         help="Esegui un solo ciclo e esci")
     parser.add_argument("--status", action="store_true",
@@ -2551,9 +2585,13 @@ Esempi:
     hours = []
     for part in args.hours.split(","):
         part = part.strip()
+        mode = "local"
+        if part.endswith("u"):
+            mode = "utc"
+            part = part[:-1]
         if ":" in part:
             h, m = part.split(":")
-            hours.append((int(h), int(m)))
+            hours.append((int(h), int(m), mode))
         else:
             hours.append((int(part), 0))
     hours.sort()
