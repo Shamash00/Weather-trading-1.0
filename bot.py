@@ -45,7 +45,7 @@ from openpyxl.utils import get_column_letter
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SNAPSHOT_HOURS = [(16, 10), (20, 10)]  # Default: 16:10 e 20:10 locali (ora, minuto)
+SNAPSHOT_HOURS = [(16, 10), (17, 10), (18, 10), (20, 10)]  # 16:10, 17:10, 18:10, 20:10 locali
 CHECK_INTERVAL = 60         # Secondi tra ogni check del loop principale
 EVENT_REFRESH_INTERVAL = 1800  # Refresh lista mercati ogni 30 minuti
 SNAPSHOT_WINDOW = 7200      # Finestra di cattura: se il bot parte in ritardo, cattura
