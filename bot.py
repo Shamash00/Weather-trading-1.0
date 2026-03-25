@@ -49,9 +49,10 @@ from openpyxl.utils import get_column_letter
 # mode="utc"   -> orario UTC fisso, uguale per tutte le citta
 # mode="local"  -> orario locale della citta target
 SNAPSHOT_HOURS = [
-    (17, 10, "utc"),    # 17:10 UTC fisso — 9/15 modelli 12Z, massimo edge
-    (18, 10, "utc"),    # 18:10 UTC fisso — 13/15 modelli 12Z, include ECMWF
-    (20, 10, "utc"),    # 20:10 UTC fisso — 15/15 modelli 12Z, benchmark
+    (17, 10, "utc"),    # 17:10 UTC — 9/15 modelli 12Z (ottimo per Asia/Europa/Oceania)
+    (18, 10, "utc"),    # 18:10 UTC — 13/15 modelli 12Z, include ECMWF
+    (16, 10, "local"),  # 16:10 locale — ottimo per Americhe (=20-21 UTC, 15/15 modelli)
+    (20, 10, "utc"),    # 20:10 UTC — 15/15 modelli 12Z, benchmark
 ]
 CHECK_INTERVAL = 60         # Secondi tra ogni check del loop principale
 EVENT_REFRESH_INTERVAL = 1800  # Refresh lista mercati ogni 30 minuti
