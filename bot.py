@@ -2196,9 +2196,13 @@ def do_snapshot(market: dict, state: dict):
 # STATUS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def show_status(state: dict, hours: list[tuple[int, int]]):
+def show_status(state: dict, hours: list):
     """Mostra lo stato corrente del bot."""
-    hours_str = ", ".join(f"{h}:{m:02d}" for h, m in hours)
+    def _fh(e):
+        h, m = e[0], e[1]
+        mode = e[2] if len(e) > 2 else "local"
+        return f"{h}:{m:02d}{' UTC' if mode == 'utc' else ' loc'}"
+    hours_str = ", ".join(_fh(e) for e in hours)
     print(f"\n{'='*60}")
     print(f"  POLYMARKET WEATHER BOT - STATUS")
     print(f"  Snapshot hours: {hours_str} locale")
@@ -2594,9 +2598,13 @@ Esempi:
             h, m = part.split(":")
             hours.append((int(h), int(m), mode))
         else:
-            hours.append((int(part), 0))
+            hours.append((int(part), 0, mode))
     hours.sort()
-    hours_str = ", ".join(f"{h}:{m:02d}" for h, m in hours)
+    def _fmt(e):
+        h, m = e[0], e[1]
+        md = e[2] if len(e) > 2 else "local"
+        return f"{h}:{m:02d}{' UTC' if md == 'utc' else ' loc'}"
+    hours_str = ", ".join(_fmt(e) for e in hours)
 
     state = load_state()
 
