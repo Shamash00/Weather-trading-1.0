@@ -2896,7 +2896,7 @@ def git_push_data():
         if not files_to_add:
             return
 
-        subprocess.run(["git", "add"] + files_to_add,
+        subprocess.run(["git", "add", "-f"] + files_to_add,
                        cwd=cwd, capture_output=True, timeout=30)
 
         # Check se ci sono cambiamenti staged
@@ -2994,12 +2994,22 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
     except Exception as e:
         log.error(f"Errore ri-verifica risoluzioni: {e}")
 
-    # Push forzato all'avvio per sincronizzare i dati storici
+    # Pull dati storici da GitHub all'avvio (per non perdere lo storico su Railway)
     if GIT_AUTO_PUSH:
-        log.info("Git push iniziale dei dati esistenti...")
+        log.info("Git: sincronizzazione dati storici...")
         global _last_git_push
+        if _ensure_git_repo():
+            try:
+                cwd = str(DATA_DIR)
+                pull = subprocess.run(["git", "pull", "origin", "main", "--no-rebase"],
+                                      cwd=cwd, capture_output=True, timeout=60)
+                if pull.returncode == 0:
+                    log.info("Git pull completato - dati storici recuperati")
+                else:
+                    log.warning(f"Git pull fallito: {pull.stderr.decode()[:200]}")
+            except Exception as e:
+                log.warning(f"Git pull errore: {e}")
         _last_git_push = 0  # Forza il push ignorando il cooldown
-        git_push_data()
 
     def _fmt_hour(entry):
         h, m = entry[0], entry[1]

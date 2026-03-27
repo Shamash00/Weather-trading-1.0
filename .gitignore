@@ -4,10 +4,7 @@ _cache_modelli/
 _gefs_cache/
 _gefs_storico/
 
-# File generati dal bot (non servono nel deploy)
-dati_meteo.xlsx
-dati_combinati.xlsx
-bot_state.json
+# Log del bot
 bot.log
 
 # File temporanei Excel
