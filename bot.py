@@ -2862,10 +2862,10 @@ def _ensure_git_repo():
                        cwd=cwd, capture_output=True, timeout=10)
         subprocess.run(["git", "config", "user.name", "Weather Bot"],
                        cwd=cwd, capture_output=True, timeout=10)
-        # Fetch per avere la storia e poter pushare
-        subprocess.run(["git", "fetch", "origin", "main"],
+        # Fetch shallow (solo ultimo commit per risparmiare spazio disco)
+        subprocess.run(["git", "fetch", "--depth", "1", "origin", "main"],
                        cwd=cwd, capture_output=True, timeout=60)
-        subprocess.run(["git", "checkout", "-b", "main", "--track", "origin/main"],
+        subprocess.run(["git", "checkout", "-b", "main", "origin/main"],
                        cwd=cwd, capture_output=True, timeout=30)
         log.info("Git repo inizializzato per push dati")
         return True
