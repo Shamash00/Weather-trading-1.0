@@ -2840,88 +2840,9 @@ def show_status(state: dict, hours: list):
 
 _last_git_push = 0
 
-def _ensure_git_repo():
-    """Inizializza repo git nella DATA_DIR se non esiste (per Railway)."""
-    cwd = str(DATA_DIR)
-    git_dir = DATA_DIR / ".git"
-    if git_dir.exists():
-        return True
-
-    token = os.environ.get("GITHUB_TOKEN", "")
-    repo_url = os.environ.get("GITHUB_REPO", "github.com/Shamash00/Weather-trading-1.0.git")
-    if not token:
-        log.warning("GITHUB_TOKEN non configurato, git push disabilitato")
-        return False
-
-    try:
-        remote = f"https://x-access-token:{token}@{repo_url}"
-        subprocess.run(["git", "init"], cwd=cwd, capture_output=True, timeout=15)
-        subprocess.run(["git", "remote", "add", "origin", remote],
-                       cwd=cwd, capture_output=True, timeout=15)
-        subprocess.run(["git", "config", "user.email", "bot@railway.app"],
-                       cwd=cwd, capture_output=True, timeout=10)
-        subprocess.run(["git", "config", "user.name", "Weather Bot"],
-                       cwd=cwd, capture_output=True, timeout=10)
-        # Fetch shallow (solo ultimo commit per risparmiare spazio disco)
-        subprocess.run(["git", "fetch", "--depth", "1", "origin", "main"],
-                       cwd=cwd, capture_output=True, timeout=60)
-        subprocess.run(["git", "checkout", "-b", "main", "origin/main"],
-                       cwd=cwd, capture_output=True, timeout=30)
-        log.info("Git repo inizializzato per push dati")
-        return True
-    except Exception as e:
-        log.warning(f"Errore init git repo: {e}")
-        return False
-
-
 def git_push_data():
-    """Committa e pusha i file dati su GitHub per sync automatico."""
-    global _last_git_push
-    if not GIT_AUTO_PUSH:
-        return
-
-    # Max 1 push ogni 5 minuti per evitare spam
-    now = time_mod.time()
-    if now - _last_git_push < 300:
-        return
-
-    if not _ensure_git_repo():
-        return
-
-    try:
-        cwd = str(DATA_DIR)
-        # Aggiungi solo i file dati (non tutto il repo)
-        files_to_add = [f for f in GIT_PUSH_FILES
-                        if (DATA_DIR / f).exists()]
-        if not files_to_add:
-            return
-
-        subprocess.run(["git", "add", "-f"] + files_to_add,
-                       cwd=cwd, capture_output=True, timeout=30)
-
-        # Check se ci sono cambiamenti staged
-        result = subprocess.run(["git", "diff", "--cached", "--quiet"],
-                                cwd=cwd, capture_output=True, timeout=10)
-        if result.returncode == 0:
-            return  # Niente da committare
-
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        subprocess.run(
-            ["git", "commit", "-m", f"Auto-update dati bot {ts}"],
-            cwd=cwd, capture_output=True, timeout=30)
-
-        push_result = subprocess.run(
-            ["git", "push", "origin", "main"],
-            cwd=cwd, capture_output=True, timeout=60)
-
-        if push_result.returncode == 0:
-            _last_git_push = now
-            log.info("Git push dati completato")
-        else:
-            log.warning(f"Git push fallito: {push_result.stderr.decode()[:200]}")
-
-    except Exception as e:
-        log.debug(f"Git push errore: {e}")
+    """Placeholder - git push disabilitato. I file sono serviti via web endpoint."""
+    pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2993,23 +2914,6 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
         recheck_past_resolutions(state)
     except Exception as e:
         log.error(f"Errore ri-verifica risoluzioni: {e}")
-
-    # Pull dati storici da GitHub all'avvio (per non perdere lo storico su Railway)
-    if GIT_AUTO_PUSH:
-        log.info("Git: sincronizzazione dati storici...")
-        global _last_git_push
-        if _ensure_git_repo():
-            try:
-                cwd = str(DATA_DIR)
-                pull = subprocess.run(["git", "pull", "origin", "main", "--no-rebase"],
-                                      cwd=cwd, capture_output=True, timeout=60)
-                if pull.returncode == 0:
-                    log.info("Git pull completato - dati storici recuperati")
-                else:
-                    log.warning(f"Git pull fallito: {pull.stderr.decode()[:200]}")
-            except Exception as e:
-                log.warning(f"Git pull errore: {e}")
-        _last_git_push = 0  # Forza il push ignorando il cooldown
 
     def _fmt_hour(entry):
         h, m = entry[0], entry[1]
