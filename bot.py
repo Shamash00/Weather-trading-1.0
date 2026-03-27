@@ -1982,7 +1982,11 @@ def get_or_create_sheet(wb, name, headers):
 def init_workbook() -> openpyxl.Workbook:
     """Inizializza o carica il workbook Excel."""
     if EXCEL_FILE.exists():
-        return openpyxl.load_workbook(EXCEL_FILE)
+        try:
+            return openpyxl.load_workbook(EXCEL_FILE)
+        except Exception as e:
+            log.warning(f"Excel corrotto, ricreo: {e}")
+            EXCEL_FILE.unlink()
 
     wb = openpyxl.Workbook()
     if "Sheet" in wb.sheetnames:
@@ -2265,7 +2269,11 @@ def write_resolution_to_excel(city: str, target_date: str, winner: str, timestam
 def init_combined_workbook():
     """Inizializza o carica il workbook combinato."""
     if EXCEL_COMBINED.exists():
-        return openpyxl.load_workbook(EXCEL_COMBINED)
+        try:
+            return openpyxl.load_workbook(EXCEL_COMBINED)
+        except Exception as e:
+            log.warning(f"Excel combinato corrotto, ricreo: {e}")
+            EXCEL_COMBINED.unlink()
     wb = openpyxl.Workbook()
     # Rimuovi foglio default
     if "Sheet" in wb.sheetnames:
