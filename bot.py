@@ -70,6 +70,7 @@ STATE_FILE = DATA_DIR / "bot_state.json"
 EXCEL_FILE = DATA_DIR / "dati_meteo.xlsx"
 EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
 OPTIMIZATION_FILE = BASE_DIR / "Ottimizzazione Ensemble Stagioni.xlsx"
+TOP_MODELS_FILE = BASE_DIR / "Top 5 Modelli per Citta.xlsx"
 MODEL_STATS_FILE = BASE_DIR / "model_error_stats.pkl"
 LOG_FILE = DATA_DIR / "bot.log"
 
@@ -276,6 +277,60 @@ def load_model_stats() -> dict:
     n_entries = len(_model_stats_cache.get("stats", {}))
     log.info(f"Model stats caricati: {n_entries} combinazioni modello/citta/stagione")
     return _model_stats_cache
+
+
+# ── Caricamento top N modelli per citta (da Top 5 Modelli per Citta.xlsx) ────
+
+_top_models_cache = None
+
+def load_top_models() -> dict:
+    """
+    Carica i top modelli per citta dal file 'Top 5 Modelli per Citta.xlsx'.
+    Ritorna dict: {opt_city: {"top5": [model1, ...], "top10": [model1, ...]}}.
+    I nomi citta nel file usano la convenzione del confronto (es. "Londra", "Milano").
+    """
+    global _top_models_cache
+    if _top_models_cache is not None:
+        return _top_models_cache
+
+    if not TOP_MODELS_FILE.exists():
+        log.warning(f"File top modelli non trovato: {TOP_MODELS_FILE}")
+        _top_models_cache = {}
+        return _top_models_cache
+
+    wb = openpyxl.load_workbook(TOP_MODELS_FILE, read_only=True, data_only=True)
+    result = {}
+
+    for sheet_name, key in [("Top 5 - Previsione 1 Giorno", "top5"),
+                             ("Top 10 - Previsione 1 Giorno", "top10")]:
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        for r in range(2, ws.max_row + 1):
+            city = ws.cell(r, 1).value
+            if not city:
+                continue
+            city = str(city).strip()
+            if city not in result:
+                result[city] = {"top5": [], "top10": []}
+
+            models = []
+            # Ogni modello occupa 3 colonne: nome, V%F, V%C
+            col = 2
+            while True:
+                model = ws.cell(r, col).value
+                if not model:
+                    break
+                models.append(str(model).strip())
+                col += 3  # salta V%F e V%C
+
+            result[city][key] = models
+
+    wb.close()
+    total = len(result)
+    log.info(f"Top modelli caricati: {total} citta")
+    _top_models_cache = result
+    return _top_models_cache
 
 
 # ── Modelli ensemble ─────────────────────────────────────────────────────────
@@ -782,7 +837,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -810,7 +865,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1458,6 +1513,69 @@ def do_mixture_forecast_optimized(city: str, target_date: str,
     return result
 
 
+def _do_mixture_forecast_topN(city: str, target_date: str,
+                               parsed_buckets: list[dict],
+                               top_key: str) -> dict | None:
+    """
+    Mixture calibrato usando i top N modelli per Verde% storica.
+    top_key: "top5" o "top10".
+    """
+    opt_city = CITY_NAME_TO_OPT.get(city)
+    if not opt_city:
+        return None
+
+    model_stats_data = load_model_stats()
+    if not model_stats_data or "stats" not in model_stats_data:
+        return None
+
+    city_data = match_city(city)
+    if not city_data:
+        return None
+
+    month = int(target_date.split("-")[1])
+    season = get_season(month, opt_city)
+
+    # Carica top modelli — il file usa i nomi "confronto" (= opt_city)
+    top_models_data = load_top_models()
+    city_top = top_models_data.get(opt_city)
+    if not city_top or not city_top.get(top_key):
+        log.debug(f"  Mixture {top_key}: nessun modello trovato per {opt_city}")
+        return None
+
+    models = city_top[top_key]
+    label = top_key.upper()
+
+    log.info(f"    Mixture {label}: fetching {len(models)} modelli...")
+    raw = fetch_deterministic_for_city(
+        city_data["lat"], city_data["lon"], target_date, models)
+    log.info(f"    Mixture {label}: {len(raw)}/{len(models)} modelli ricevuti")
+
+    if len(raw) < 2:
+        log.info(f"    Mixture {label}: troppi pochi modelli, skip")
+        return None
+
+    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
+
+    if result:
+        log.info(f"    Mixture {label}: {result['n_models_used']} modelli usati, "
+                 f"spread={result['inter_model_spread']:.2f}°C, "
+                 f"media={result['weighted_mean_c']:.1f}°C")
+
+    return result
+
+
+def do_mixture_forecast_top5(city: str, target_date: str,
+                              parsed_buckets: list[dict]) -> dict | None:
+    """Mixture calibrato con i top 5 modelli per Verde% storica."""
+    return _do_mixture_forecast_topN(city, target_date, parsed_buckets, "top5")
+
+
+def do_mixture_forecast_top10(city: str, target_date: str,
+                               parsed_buckets: list[dict]) -> dict | None:
+    """Mixture calibrato con i top 10 modelli per Verde% storica."""
+    return _do_mixture_forecast_topN(city, target_date, parsed_buckets, "top10")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SCHEDULING
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1873,7 +1991,9 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              ensemble: dict, deterministic: dict | None,
                              mixture: dict | None = None,
                              snapshot_mode: str = "local",
-                             mixture_opt: dict | None = None):
+                             mixture_opt: dict | None = None,
+                             mixture_top5: dict | None = None,
+                             mixture_top10: dict | None = None):
     """Scrive nel file Excel combinato con 5 fogli.
     Raggruppa i diversi orari nella stessa sezione per citta/data."""
     wb = init_combined_workbook()
@@ -2076,6 +2196,24 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_opt['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Comb 2", mix_opt_probs, mix_opt_info)
 
+    # ── Foglio 6: Prob Comb 3 (mixture con top 5 modelli per Verde%) ──
+    if mixture_top5:
+        mix_t5_probs = mixture_top5.get("mixture_probs", {})
+        if mix_t5_probs:
+            mix_t5_info = (f"MIXTURE TOP5 | {mixture_top5['n_models_used']} modelli top Verde% | "
+                           f"spread={mixture_top5['inter_model_spread']:.2f}°C | "
+                           f"media={mixture_top5['weighted_mean_c']:.1f}°C")
+            _write_prob_sheet("Prob Comb 3", mix_t5_probs, mix_t5_info)
+
+    # ── Foglio 7: Prob Comb 4 (mixture con top 10 modelli per Verde%) ──
+    if mixture_top10:
+        mix_t10_probs = mixture_top10.get("mixture_probs", {})
+        if mix_t10_probs:
+            mix_t10_info = (f"MIXTURE TOP10 | {mixture_top10['n_models_used']} modelli top Verde% | "
+                            f"spread={mixture_top10['inter_model_spread']:.2f}°C | "
+                            f"media={mixture_top10['weighted_mean_c']:.1f}°C")
+            _write_prob_sheet("Prob Comb 4", mix_t10_probs, mix_t10_info)
+
     wb.save(EXCEL_COMBINED)
 
 
@@ -2092,7 +2230,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2204,6 +2342,14 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Mixture ottimizzato: avvio...")
     mixture_opt = do_mixture_forecast_optimized(city, target_date, parsed_buckets)
 
+    # 3d. Mixture Top 5 (top 5 modelli per Verde% storica)
+    log.info(f"    Mixture top5: avvio...")
+    mixture_top5 = do_mixture_forecast_top5(city, target_date, parsed_buckets)
+
+    # 3e. Mixture Top 10 (top 10 modelli per Verde% storica)
+    log.info(f"    Mixture top10: avvio...")
+    mixture_top10 = do_mixture_forecast_top10(city, target_date, parsed_buckets)
+
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
@@ -2213,7 +2359,9 @@ def do_snapshot(market: dict, state: dict):
     # 5. Scrivi Excel combinato
     write_combined_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
                              buckets, ensemble, deterministic, mixture, snapshot_mode,
-                             mixture_opt=mixture_opt)
+                             mixture_opt=mixture_opt,
+                             mixture_top5=mixture_top5,
+                             mixture_top10=mixture_top10)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
