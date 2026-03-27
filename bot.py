@@ -2832,6 +2832,40 @@ def show_status(state: dict, hours: list):
 
 _last_git_push = 0
 
+def _ensure_git_repo():
+    """Inizializza repo git nella DATA_DIR se non esiste (per Railway)."""
+    cwd = str(DATA_DIR)
+    git_dir = DATA_DIR / ".git"
+    if git_dir.exists():
+        return True
+
+    token = os.environ.get("GITHUB_TOKEN", "")
+    repo_url = os.environ.get("GITHUB_REPO", "github.com/Shamash00/Weather-trading-1.0.git")
+    if not token:
+        log.warning("GITHUB_TOKEN non configurato, git push disabilitato")
+        return False
+
+    try:
+        remote = f"https://x-access-token:{token}@{repo_url}"
+        subprocess.run(["git", "init"], cwd=cwd, capture_output=True, timeout=15)
+        subprocess.run(["git", "remote", "add", "origin", remote],
+                       cwd=cwd, capture_output=True, timeout=15)
+        subprocess.run(["git", "config", "user.email", "bot@railway.app"],
+                       cwd=cwd, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "user.name", "Weather Bot"],
+                       cwd=cwd, capture_output=True, timeout=10)
+        # Fetch per avere la storia e poter pushare
+        subprocess.run(["git", "fetch", "origin", "main"],
+                       cwd=cwd, capture_output=True, timeout=60)
+        subprocess.run(["git", "checkout", "-b", "main", "--track", "origin/main"],
+                       cwd=cwd, capture_output=True, timeout=30)
+        log.info("Git repo inizializzato per push dati")
+        return True
+    except Exception as e:
+        log.warning(f"Errore init git repo: {e}")
+        return False
+
+
 def git_push_data():
     """Committa e pusha i file dati su GitHub per sync automatico."""
     global _last_git_push
@@ -2841,6 +2875,9 @@ def git_push_data():
     # Max 1 push ogni 5 minuti per evitare spam
     now = time_mod.time()
     if now - _last_git_push < 300:
+        return
+
+    if not _ensure_git_repo():
         return
 
     try:
@@ -2866,7 +2903,7 @@ def git_push_data():
             cwd=cwd, capture_output=True, timeout=30)
 
         push_result = subprocess.run(
-            ["git", "push"],
+            ["git", "push", "origin", "main"],
             cwd=cwd, capture_output=True, timeout=60)
 
         if push_result.returncode == 0:
