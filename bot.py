@@ -670,7 +670,7 @@ def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]
     return list(markets.values())
 
 
-RESOLUTION_START_DATE = "2026-03-17"  # Registra risoluzioni solo da questa data
+RESOLUTION_START_DATE = "2026-03-27"  # Registra risoluzioni solo da questa data
 
 def check_resolutions(state: dict) -> list[dict]:
     """Controlla mercati (aperti e chiusi) per trovare risoluzioni delle 20 citta.
