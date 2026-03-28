@@ -2056,13 +2056,13 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
     verde = deterministic.get("verde", 0) if deterministic else 0
     mix_probs = mixture.get("mixture_probs", {}) if mixture else {}
 
-    # Prob Combinate: usa mixture se disponibile, altrimenti fallback
+    # Prob Combinate: usa mixture se disponibile, altrimenti det+ens
     if mix_probs:
         comb_probs = mix_probs
     elif deterministic and det_probs:
         comb_probs = combine_probabilities(ens_probs, det_probs, verde)
     else:
-        comb_probs = ens_probs
+        comb_probs = {}  # non scrivere Prob Combinate senza deterministici
 
     section_title = f"{city} — {target_date}"
 
@@ -2430,18 +2430,17 @@ def do_snapshot(market: dict, state: dict):
         log.info(f"    Forecast det: {deterministic['forecast_display']:.1f}°{deterministic['unit']} "
                  f"({deterministic['method']}, verde={deterministic['verde']:.1f}%)")
 
-    # Probabilita finali: usa mixture se disponibile, altrimenti fallback al vecchio metodo
+    # Probabilita finali: usa mixture se disponibile, altrimenti det+ens
     if mixture and mixture.get("mixture_probs"):
         comb_probs = mixture["mixture_probs"]
         prob_source = "MIXTURE"
+    elif deterministic and deterministic.get("gaussian_probs"):
+        det_probs = deterministic["gaussian_probs"]
+        comb_probs = combine_probabilities(ens_probs, det_probs, deterministic["verde"])
+        prob_source = "DET+ENS"
     else:
-        det_probs = deterministic.get("gaussian_probs", {}) if deterministic else {}
-        if deterministic and det_probs:
-            comb_probs = combine_probabilities(ens_probs, det_probs, deterministic["verde"])
-            prob_source = "DET+ENS"
-        else:
-            comb_probs = ens_probs
-            prob_source = "ENS"
+        comb_probs = {}
+        prob_source = "SKIP"
 
     for b in buckets:
         label = b["label"]
