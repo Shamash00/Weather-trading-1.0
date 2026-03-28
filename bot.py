@@ -440,18 +440,28 @@ def save_state(state: dict):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def fetch_temp_events(closed: bool = False) -> list[dict]:
-    """Scarica eventi temperatura da Polymarket."""
+    """Scarica eventi temperatura da Polymarket con paginazione."""
+    all_events = []
+    offset = 0
     try:
-        resp = requests.get(
-            f"{GAMMA_API}/events",
-            params={"tag_slug": "weather", "closed": str(closed).lower(), "limit": 200},
-            timeout=20,
-        )
-        resp.raise_for_status()
-        return [e for e in resp.json() if "highest temperature" in e.get("title", "").lower()]
+        while True:
+            resp = requests.get(
+                f"{GAMMA_API}/events",
+                params={"tag_slug": "weather", "closed": str(closed).lower(),
+                        "limit": 200, "offset": offset},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            batch = resp.json()
+            temp_events = [e for e in batch if "highest temperature" in e.get("title", "").lower()]
+            all_events.extend(temp_events)
+            if len(batch) < 200:
+                break
+            offset += 200
+        return all_events
     except requests.RequestException as e:
         log.warning(f"Gamma API error: {e}")
-        return []
+        return all_events
 
 
 def city_from_title(title: str) -> str:
