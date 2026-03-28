@@ -872,7 +872,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Deterministici v2", "Prob Comb 2.1", "Prob Comb 3.1", "Prob Comb 4.1"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -900,7 +900,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Deterministici v2", "Prob Comb 2.1", "Prob Comb 3.1", "Prob Comb 4.1"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1332,66 +1332,6 @@ def do_deterministic_forecast(city: str, target_date: str,
     }
 
 
-def do_deterministic_forecast_v2(city: str, target_date: str,
-                                  parsed_buckets: list[dict]) -> dict | None:
-    """
-    Esegue il forecast deterministico v2 (config aggiornata da Riepilogo).
-    """
-    opt_city = CITY_NAME_TO_OPT.get(city)
-    if not opt_city:
-        return None
-
-    config = load_deterministic_config_v2()
-    month = int(target_date.split("-")[1])
-    season = get_season(month, opt_city)
-    key = (opt_city, season)
-
-    if key not in config:
-        log.debug(f"  Det v2: config non trovata per {opt_city}/{season}")
-        return None
-
-    cfg = config[key]
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    log.info(f"    Deterministici v2 [{opt_city}/{season}]: {len(cfg['models'])} modelli, "
-             f"metodo={cfg['method']}, verde={cfg['verde']}%")
-
-    raw = fetch_deterministic_for_city(
-        city_data["lat"], city_data["lon"], target_date, cfg["models"])
-    log.info(f"    Deterministici v2: {len(raw)}/{len(cfg['models'])} modelli ricevuti")
-
-    if not raw:
-        return None
-
-    agg = apply_bc_and_aggregate(raw, cfg["corrections"], cfg["method"])
-
-    if agg["forecast_c"] is None:
-        return None
-
-    det_probs = gaussian_bucket_probs(agg["forecast_c"], cfg["mae"], parsed_buckets)
-
-    unit = parsed_buckets[0]["unit"] if parsed_buckets and parsed_buckets[0] else "C"
-    forecast_display = agg["forecast_c"] * 9 / 5 + 32 if unit == "F" else agg["forecast_c"]
-
-    log.info(f"    Deterministici v2: forecast={forecast_display:.1f}\u00b0{unit} "
-             f"(MAE={cfg['mae']:.2f}\u00b0C, metodo={cfg['method']})")
-
-    return {
-        "forecast_c": agg["forecast_c"],
-        "forecast_display": forecast_display,
-        "unit": unit,
-        "per_model": agg["per_model"],
-        "n_models": agg["n_models"],
-        "method": cfg["method"],
-        "mae": cfg["mae"],
-        "verde": cfg["verde"],
-        "season": season,
-        "gaussian_probs": det_probs,
-        "config": cfg,
-    }
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # MIXTURE MODEL - Probabilita calibrate multi-modello
@@ -1609,53 +1549,6 @@ def do_mixture_forecast_optimized(city: str, target_date: str,
     return result
 
 
-def do_mixture_forecast_optimized_v2(city: str, target_date: str,
-                                      parsed_buckets: list[dict]) -> dict | None:
-    """
-    Mixture con modelli ottimizzati per stagione (config v2 da Riepilogo aggiornato).
-    """
-    opt_city = CITY_NAME_TO_OPT.get(city)
-    if not opt_city:
-        return None
-
-    model_stats_data = load_model_stats()
-    if not model_stats_data or "stats" not in model_stats_data:
-        return None
-
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    month = int(target_date.split("-")[1])
-    season = get_season(month, opt_city)
-
-    config = load_deterministic_config_v2()
-    key = (opt_city, season)
-    if key not in config:
-        log.debug(f"  Mixture Opt v2: config non trovata per {opt_city}/{season}")
-        return None
-
-    cfg = config[key]
-    optimized_models = cfg["models"]
-
-    log.info(f"    Mixture Opt v2: fetching {len(optimized_models)} modelli ottimizzati...")
-    raw = fetch_deterministic_for_city(
-        city_data["lat"], city_data["lon"], target_date, optimized_models)
-    log.info(f"    Mixture Opt v2: {len(raw)}/{len(optimized_models)} modelli ricevuti")
-
-    if len(raw) < 2:
-        log.info(f"    Mixture Opt v2: troppi pochi modelli, skip")
-        return None
-
-    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
-
-    if result:
-        log.info(f"    Mixture Opt v2: {result['n_models_used']} modelli usati, "
-                 f"spread={result['inter_model_spread']:.2f}\u00b0C, "
-                 f"media={result['weighted_mean_c']:.1f}\u00b0C")
-
-    return result
-
 
 def _do_mixture_forecast_topN(city: str, target_date: str,
                                parsed_buckets: list[dict],
@@ -1720,65 +1613,6 @@ def do_mixture_forecast_top10(city: str, target_date: str,
     return _do_mixture_forecast_topN(city, target_date, parsed_buckets, "top10")
 
 
-def _do_mixture_forecast_topN_v2(city: str, target_date: str,
-                                  parsed_buckets: list[dict],
-                                  top_key: str) -> dict | None:
-    """
-    Mixture calibrato usando i top N modelli per Verde% (classifica aggiornata v2).
-    """
-    opt_city = CITY_NAME_TO_OPT.get(city)
-    if not opt_city:
-        return None
-
-    model_stats_data = load_model_stats()
-    if not model_stats_data or "stats" not in model_stats_data:
-        return None
-
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    month = int(target_date.split("-")[1])
-    season = get_season(month, opt_city)
-
-    top_models_data = load_top_models_v2()
-    city_top = top_models_data.get(opt_city)
-    if not city_top or not city_top.get(top_key):
-        log.debug(f"  Mixture v2 {top_key}: nessun modello trovato per {opt_city}")
-        return None
-
-    models = city_top[top_key]
-    label = top_key.upper()
-
-    log.info(f"    Mixture v2 {label}: fetching {len(models)} modelli...")
-    raw = fetch_deterministic_for_city(
-        city_data["lat"], city_data["lon"], target_date, models)
-    log.info(f"    Mixture v2 {label}: {len(raw)}/{len(models)} modelli ricevuti")
-
-    if len(raw) < 2:
-        log.info(f"    Mixture v2 {label}: troppi pochi modelli, skip")
-        return None
-
-    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
-
-    if result:
-        log.info(f"    Mixture v2 {label}: {result['n_models_used']} modelli usati, "
-                 f"spread={result['inter_model_spread']:.2f}\u00b0C, "
-                 f"media={result['weighted_mean_c']:.1f}\u00b0C")
-
-    return result
-
-
-def do_mixture_forecast_top5_v2(city: str, target_date: str,
-                                 parsed_buckets: list[dict]) -> dict | None:
-    """Mixture calibrato con i top 5 modelli aggiornati."""
-    return _do_mixture_forecast_topN_v2(city, target_date, parsed_buckets, "top5")
-
-
-def do_mixture_forecast_top10_v2(city: str, target_date: str,
-                                  parsed_buckets: list[dict]) -> dict | None:
-    """Mixture calibrato con i top 10 modelli aggiornati."""
-    return _do_mixture_forecast_topN_v2(city, target_date, parsed_buckets, "top10")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2207,10 +2041,7 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              mixture_opt: dict | None = None,
                              mixture_top5: dict | None = None,
                              mixture_top10: dict | None = None,
-                             deterministic_v2: dict | None = None,
-                             mixture_opt_v2: dict | None = None,
-                             mixture_top5_v2: dict | None = None,
-                             mixture_top10_v2: dict | None = None):
+):
     """Scrive nel file Excel combinato con fogli probabilita.
     Raggruppa i diversi orari nella stessa sezione per citta/data."""
     wb = init_combined_workbook()
@@ -2431,48 +2262,6 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_top10['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Comb 4", mix_t10_probs, mix_t10_info)
 
-    # ── Foglio 8: Prob Deterministici v2 (config aggiornata da Riepilogo) ──
-    det_v2_probs = deterministic_v2.get("gaussian_probs", {}) if deterministic_v2 else {}
-    if deterministic_v2 and det_v2_probs:
-        det_v2_info = (f"Metodo={deterministic_v2['method']} | "
-                       f"Forecast={deterministic_v2['forecast_display']:.1f}\u00b0{deterministic_v2['unit']} | "
-                       f"MAE={deterministic_v2['mae']:.2f} | "
-                       f"Verde={deterministic_v2['verde']:.1f}% | "
-                       f"Stagione={deterministic_v2['season']}")
-        _write_prob_sheet("Prob Deterministici v2", det_v2_probs, det_v2_info,
-                          det_models=deterministic_v2.get("per_model"),
-                          det_unit=deterministic_v2.get("unit", "C"))
-    else:
-        if "Prob Deterministici v2" not in wb.sheetnames:
-            wb.create_sheet(title="Prob Deterministici v2")
-
-    # ── Foglio 9: Prob Comb 2.1 (mixture con modelli ottimizzati aggiornati) ──
-    if mixture_opt_v2:
-        mix_opt_v2_probs = mixture_opt_v2.get("mixture_probs", {})
-        if mix_opt_v2_probs:
-            mix_opt_v2_info = (f"MIXTURE OPT v2 | {mixture_opt_v2['n_models_used']} modelli ottimizzati | "
-                               f"spread={mixture_opt_v2['inter_model_spread']:.2f}\u00b0C | "
-                               f"media={mixture_opt_v2['weighted_mean_c']:.1f}\u00b0C")
-            _write_prob_sheet("Prob Comb 2.1", mix_opt_v2_probs, mix_opt_v2_info)
-
-    # ── Foglio 10: Prob Comb 3.1 (mixture con top 5 aggiornati) ──
-    if mixture_top5_v2:
-        mix_t5_v2_probs = mixture_top5_v2.get("mixture_probs", {})
-        if mix_t5_v2_probs:
-            mix_t5_v2_info = (f"MIXTURE TOP5 v2 | {mixture_top5_v2['n_models_used']} modelli top Verde% | "
-                              f"spread={mixture_top5_v2['inter_model_spread']:.2f}\u00b0C | "
-                              f"media={mixture_top5_v2['weighted_mean_c']:.1f}\u00b0C")
-            _write_prob_sheet("Prob Comb 3.1", mix_t5_v2_probs, mix_t5_v2_info)
-
-    # ── Foglio 11: Prob Comb 4.1 (mixture con top 10 aggiornati) ──
-    if mixture_top10_v2:
-        mix_t10_v2_probs = mixture_top10_v2.get("mixture_probs", {})
-        if mix_t10_v2_probs:
-            mix_t10_v2_info = (f"MIXTURE TOP10 v2 | {mixture_top10_v2['n_models_used']} modelli top Verde% | "
-                               f"spread={mixture_top10_v2['inter_model_spread']:.2f}\u00b0C | "
-                               f"media={mixture_top10_v2['weighted_mean_c']:.1f}\u00b0C")
-            _write_prob_sheet("Prob Comb 4.1", mix_t10_v2_probs, mix_t10_v2_info)
-
     wb.save(EXCEL_COMBINED)
 
 
@@ -2489,7 +2278,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Deterministici v2", "Prob Comb 2.1", "Prob Comb 3.1", "Prob Comb 4.1"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2609,22 +2398,6 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Mixture top10: avvio...")
     mixture_top10 = do_mixture_forecast_top10(city, target_date, parsed_buckets)
 
-    # 3f. Deterministici v2 (config aggiornata da Riepilogo)
-    log.info(f"    Deterministici v2: avvio...")
-    deterministic_v2 = do_deterministic_forecast_v2(city, target_date, parsed_buckets)
-
-    # 3g. Mixture Opt v2 (modelli aggiornati per stagione)
-    log.info(f"    Mixture opt v2: avvio...")
-    mixture_opt_v2 = do_mixture_forecast_optimized_v2(city, target_date, parsed_buckets)
-
-    # 3h. Mixture Top5 v2 (classifica aggiornata)
-    log.info(f"    Mixture top5 v2: avvio...")
-    mixture_top5_v2 = do_mixture_forecast_top5_v2(city, target_date, parsed_buckets)
-
-    # 3i. Mixture Top10 v2 (classifica aggiornata)
-    log.info(f"    Mixture top10 v2: avvio...")
-    mixture_top10_v2 = do_mixture_forecast_top10_v2(city, target_date, parsed_buckets)
-
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
@@ -2636,11 +2409,7 @@ def do_snapshot(market: dict, state: dict):
                              buckets, ensemble, deterministic, mixture, snapshot_mode,
                              mixture_opt=mixture_opt,
                              mixture_top5=mixture_top5,
-                             mixture_top10=mixture_top10,
-                             deterministic_v2=deterministic_v2,
-                             mixture_opt_v2=mixture_opt_v2,
-                             mixture_top5_v2=mixture_top5_v2,
-                             mixture_top10_v2=mixture_top10_v2)
+                             mixture_top10=mixture_top10)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
