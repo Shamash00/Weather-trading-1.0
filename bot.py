@@ -2489,7 +2489,8 @@ def show_status(state: dict, hours: list):
 
     upcoming = []
     for mkt in markets:
-        for hour, minute in hours:
+        for entry_hours in hours:
+            hour, minute = entry_hours[0], entry_hours[1]
             key = f"{mkt['city']}_{mkt['target_date']}_h{hour}{minute:02d}"
             if key in snapshots:
                 continue
@@ -2656,7 +2657,8 @@ def main_loop(hours: list[tuple[int, int]], days_ahead: int):
                 now = datetime.now(timezone.utc)
                 next_snap = None
                 for mkt in cached_markets:
-                    for hour, minute in hours:
+                    for entry_hours in hours:
+                        hour, minute = entry_hours[0], entry_hours[1]
                         key = f"{mkt['city']}_{mkt['target_date']}_h{hour}{minute:02d}"
                         if key in state.get("snapshots_done", {}):
                             continue
