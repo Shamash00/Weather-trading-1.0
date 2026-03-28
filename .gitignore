@@ -1,6 +1,5 @@
 .claude
 __pycache__/
-_cache_modelli/
 _gefs_cache/
 _gefs_storico/
 
@@ -15,6 +14,7 @@ bot.log
 !model_error_stats.pkl
 
 # File grandi non necessari per il bot
+_cache_modelli/
 Backtest*.xlsx
 Confronto*.xlsx
 Coordinate*.xlsx
@@ -24,3 +24,17 @@ Opportunita*.xlsx
 Polymarket*.xlsx
 Previsione*.xlsx
 Previsioni*.xlsx
+Analisi*.xlsx
+PnL*.xlsx
+IFS_AIFS*.xlsx
+Temperature Storiche/
+"Temperature Storiche Tutte le Citta.xlsx"
+Ottimizzazione Ensemble per Citta.xlsx
+dati_meteo_corrupted.xlsx
+Dati meteo*.docx
+
+# Script non necessari per il bot
+Processi py/
+*.py
+!bot.py
+!top5_modelli_per_citta.py
