@@ -66,6 +66,17 @@ DETERMINISTIC_API = "https://api.open-meteo.com/v1/forecast"
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# Se DATA_DIR diversa da BASE_DIR (es. volume Railway), copia i file dal repo
+# al volume al primo avvio (cosi' non si parte da zero)
+import shutil
+if str(DATA_DIR) != str(BASE_DIR):
+    for _fname in ["dati_combinati.xlsx", "dati_meteo.xlsx", "bot_state.json"]:
+        _src = BASE_DIR / _fname
+        _dst = DATA_DIR / _fname
+        if _src.exists() and not _dst.exists():
+            shutil.copy2(_src, _dst)
+
 STATE_FILE = DATA_DIR / "bot_state.json"
 EXCEL_FILE = DATA_DIR / "dati_meteo.xlsx"
 EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
