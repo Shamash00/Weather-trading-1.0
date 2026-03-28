@@ -193,64 +193,16 @@ _det_config_cache = None
 
 def load_deterministic_config() -> dict:
     """
-    Carica la config dal foglio 'Operativa 1GG' del file ottimizzazione.
+    Carica la config dal foglio 'Riepilogo' del file ottimizzazione (1GG).
     Ritorna dict: {(opt_city, season): {method, models, corrections, mae, verde}}.
     """
     global _det_config_cache
     if _det_config_cache is not None:
         return _det_config_cache
 
-    if not OPTIMIZATION_FILE.exists():
-        log.warning(f"File ottimizzazione non trovato: {OPTIMIZATION_FILE}")
-        _det_config_cache = {}
-        return _det_config_cache
-
-    wb = openpyxl.load_workbook(OPTIMIZATION_FILE, read_only=True, data_only=True)
-    ws = wb["Operativa 1GG"]
-
-    config = {}
-    for r in range(2, ws.max_row + 1):
-        city = ws.cell(r, 1).value
-        if not city:
-            continue
-
-        season = ws.cell(r, 2).value
-        method = ws.cell(r, 3).value
-        verde = ws.cell(r, 5).value or 0
-        mae = ws.cell(r, 6).value or 1.0
-        models_str = ws.cell(r, 11).value or ""
-        bc_str = ws.cell(r, 12).value or "Nessuna"
-
-        models = [m.strip() for m in models_str.split(",")
-                  if m.strip() and m.strip() != "cma_grapes_global"]
-
-        # Parsa correzioni BC: "icon_eu: -1, gem_global: +0" -> dict
-        corrections = {}
-        if bc_str and bc_str != "Nessuna":
-            for part in bc_str.split(","):
-                part = part.strip()
-                if ":" in part:
-                    name, val = part.rsplit(":", 1)
-                    try:
-                        corrections[name.strip()] = int(val.strip().replace("+", ""))
-                    except ValueError:
-                        corrections[name.strip()] = 0
-
-        # Rimuovi correzioni BC per modelli filtrati
-        corrections = {k: v for k, v in corrections.items() if k != "cma_grapes_global"}
-
-        config[(city, season)] = {
-            "method": method,
-            "models": models,
-            "corrections": corrections,
-            "mae": float(mae),
-            "verde": float(verde),
-        }
-
-    wb.close()
-    _det_config_cache = config
-    log.info(f"Config deterministici caricata: {len(config)} combinazioni citta/stagione")
-    return config
+    # Usa la stessa logica di load_deterministic_config_v2
+    _det_config_cache = load_deterministic_config_v2()
+    return _det_config_cache
 
 
 # ── Caricamento config deterministici v2 (da Riepilogo aggiornato) ───────
@@ -347,51 +299,15 @@ _top_models_cache = None
 
 def load_top_models() -> dict:
     """
-    Carica i top modelli per citta dal file 'Top 5 Modelli per Citta.xlsx'.
+    Carica i top modelli per citta. Usa il file aggiornato (v2).
     Ritorna dict: {opt_city: {"top5": [model1, ...], "top10": [model1, ...]}}.
-    I nomi citta nel file usano la convenzione del confronto (es. "Londra", "Milano").
     """
     global _top_models_cache
     if _top_models_cache is not None:
         return _top_models_cache
 
-    if not TOP_MODELS_FILE.exists():
-        log.warning(f"File top modelli non trovato: {TOP_MODELS_FILE}")
-        _top_models_cache = {}
-        return _top_models_cache
-
-    wb = openpyxl.load_workbook(TOP_MODELS_FILE, read_only=True, data_only=True)
-    result = {}
-
-    for sheet_name, key in [("Top 5 - Previsione 1 Giorno", "top5"),
-                             ("Top 10 - Previsione 1 Giorno", "top10")]:
-        if sheet_name not in wb.sheetnames:
-            continue
-        ws = wb[sheet_name]
-        for r in range(2, ws.max_row + 1):
-            city = ws.cell(r, 1).value
-            if not city:
-                continue
-            city = str(city).strip()
-            if city not in result:
-                result[city] = {"top5": [], "top10": []}
-
-            models = []
-            # Ogni modello occupa 3 colonne: nome, V%F, V%C
-            col = 2
-            while True:
-                model = ws.cell(r, col).value
-                if not model:
-                    break
-                models.append(str(model).strip())
-                col += 3  # salta V%F e V%C
-
-            result[city][key] = models
-
-    wb.close()
-    total = len(result)
-    log.info(f"Top modelli caricati: {total} citta")
-    _top_models_cache = result
+    # Usa la stessa logica di load_top_models_v2
+    _top_models_cache = load_top_models_v2()
     return _top_models_cache
 
 
