@@ -65,6 +65,7 @@ DETERMINISTIC_API = "https://api.open-meteo.com/v1/forecast"
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "bot_state.json"
 EXCEL_FILE = DATA_DIR / "dati_meteo.xlsx"
 EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
