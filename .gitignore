@@ -37,4 +37,5 @@ Dati meteo*.docx
 Processi py/
 *.py
 !bot.py
+!bot_trading.py
 !top5_modelli_per_citta.py
