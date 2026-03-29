@@ -46,7 +46,7 @@ from scipy.stats import norm
 
 TRADE_HOUR_UTC = 17         # Ora UTC in cui fare previsioni e piazzare ordini
 TRADE_MINUTE_UTC = 10       # Minuto UTC
-DAYS_AHEAD = 2              # Considera mercati fino a N giorni avanti
+DAYS_AHEAD = 1              # Considera solo mercati del giorno dopo (domani)
 
 # ── Strategia COMBtop2 ───────────────────────────────────────────────────────
 TOP_N = 2                   # Massimo N bucket per mercato su cui puntare
@@ -441,7 +441,8 @@ def temp_sort_key(label: str) -> float:
 
 def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]:
     now = datetime.now(timezone.utc)
-    cutoff = now + timedelta(days=days_ahead)
+    # Solo mercati per domani (target_date = oggi + 1)
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     markets = {}
 
     for event in events:
@@ -452,6 +453,10 @@ def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]
         if not city or not target_date:
             continue
 
+        # Filtra: solo mercati per domani
+        if target_date != tomorrow:
+            continue
+
         for m in event.get("markets") or []:
             end_str = m.get("endDate") or event_end
             end = None
@@ -460,7 +465,7 @@ def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]
                     end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
                 except ValueError:
                     pass
-            if not end or end < now or end > cutoff:
+            if not end or end < now:
                 continue
 
             label = m.get("groupItemTitle") or m.get("question", "")
