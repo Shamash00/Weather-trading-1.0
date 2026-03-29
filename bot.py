@@ -598,7 +598,7 @@ def calc_bucket_prob_from_celsius(values_c: np.ndarray, bucket: dict) -> float:
         return int(np.sum(mask)) / total
 
 
-IGNORED_CITIES = {"Hong Kong", "Los Angeles"}
+IGNORED_CITIES = {"Hong Kong", "Los Angeles", "Istanbul"}
 
 def match_city(city_name: str) -> dict | None:
     if city_name in IGNORED_CITIES:
