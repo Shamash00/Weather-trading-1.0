@@ -44,7 +44,8 @@ from scipy.stats import norm
 # CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
 
-CHECK_INTERVAL = 300        # Secondi tra ogni ciclo di trading (5 min)
+TRADE_HOUR_UTC = 17         # Ora UTC in cui fare previsioni e piazzare ordini
+TRADE_MINUTE_UTC = 10       # Minuto UTC
 DAYS_AHEAD = 2              # Considera mercati fino a N giorni avanti
 
 # ── Strategia COMBtop2 ───────────────────────────────────────────────────────
@@ -56,10 +57,7 @@ MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
 
 # ── Limiti di rischio ────────────────────────────────────────────────────────
 MIN_EDGE_PP = 5.0           # Edge minimo in percentage points per piazzare ordine
-MAX_BET_USD = 20.0          # Puntata massima per singolo ordine ($)
-MIN_BET_USD = 1.0           # Puntata minima
-MAX_EXPOSURE_USD = 200.0    # Esposizione massima totale ($)
-KELLY_FRACTION = 0.25       # Frazione di Kelly (conservativo: 1/4 Kelly)
+BET_SIZE_USD = 1.0          # Puntata fissa per ogni mercato ($)
 
 # API endpoints
 GAMMA_API = "https://gamma-api.polymarket.com"
@@ -733,27 +731,6 @@ def compute_market_probs(city: str, target_date: str,
 # POSITION SIZING (Kelly frazionario)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def kelly_bet_size(my_prob: float, market_prob: float, bankroll: float) -> float:
-    """
-    Calcola la dimensione della scommessa con Kelly frazionario.
-    Per BUY YES: pago market_prob, vinco 1 con prob my_prob.
-    """
-    if market_prob <= 0 or market_prob >= 1 or my_prob <= 0:
-        return 0.0
-
-    # Odds decimali: quanto vinco per $1 puntato
-    odds = (1.0 / market_prob) - 1.0  # profitto netto se vinco
-
-    # Kelly: f = (p * odds - (1-p)) / odds
-    edge = my_prob * odds - (1 - my_prob)
-    if edge <= 0:
-        return 0.0
-
-    kelly_full = edge / odds
-    bet = bankroll * kelly_full * KELLY_FRACTION
-
-    return min(max(bet, 0), MAX_BET_USD)
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # POLYMARKET CLOB - PIAZZAMENTO ORDINI
@@ -917,16 +894,10 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
 
 def execute_trades(client, trades: list[dict], state: dict,
                    dry_run: bool = True) -> int:
-    """Esegue i trade COMBtop2 (sempre BUY YES su bucket a basso prezzo)."""
+    """Esegue i trade COMBtop2 (sempre BUY YES, puntata fissa)."""
     executed = 0
-    current_exposure = state.get("total_exposure", 0.0)
 
     for trade in trades:
-        if current_exposure >= MAX_EXPOSURE_USD:
-            log.warning(f"  Esposizione massima raggiunta (${current_exposure:.2f}), stop")
-            break
-
-        # Token ID: Polymarket restituisce [yes_token, no_token] come JSON string
         token_ids = trade.get("token_id")
         if not token_ids:
             continue
@@ -934,42 +905,31 @@ def execute_trades(client, trades: list[dict], state: dict,
         try:
             if isinstance(token_ids, str):
                 token_ids = json.loads(token_ids)
-            token_id = token_ids[0]  # YES token (COMBtop2 compra sempre YES)
+            token_id = token_ids[0]  # YES token
         except (json.JSONDecodeError, IndexError, TypeError):
             log.warning(f"  Token ID non valido per {trade['label']}")
             continue
 
         price = trade["market_prob"]
 
-        # Position sizing (Kelly frazionario)
-        remaining = MAX_EXPOSURE_USD - current_exposure
-        bet_size = kelly_bet_size(trade["my_prob"], price, remaining)
-        bet_size = min(bet_size, MAX_BET_USD, remaining)
-
-        if bet_size < MIN_BET_USD:
-            continue
-
         log.info(f"  >>> BUY YES {trade['label']}: "
                  f"modello={trade['my_prob']:.1%} mercato={price:.1%} "
-                 f"edge={trade['edge_pp']:+.1f}pp bet=${bet_size:.2f}")
+                 f"edge={trade['edge_pp']:+.1f}pp bet=${BET_SIZE_USD:.2f}")
 
-        result = place_order(client, token_id, "BUY", bet_size, price, dry_run)
+        result = place_order(client, token_id, "BUY", BET_SIZE_USD, price, dry_run)
 
         if result:
-            current_exposure += bet_size
             executed += 1
             state.setdefault("orders", []).append({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "city": trade.get("city", ""),
                 "label": trade["label"],
                 "my_prob": round(trade["my_prob"], 4),
                 "market_prob": round(price, 4),
                 "edge_pp": round(trade["edge_pp"], 1),
-                "bet_size": round(bet_size, 2),
+                "bet_size": BET_SIZE_USD,
                 "dry_run": dry_run,
             })
 
-    state["total_exposure"] = round(current_exposure, 2)
     return executed
 
 
@@ -1025,8 +985,17 @@ def run_cycle(state: dict, client, min_edge: float,
     return actions
 
 
+def seconds_until_next_trade() -> float:
+    """Calcola i secondi fino alle prossime TRADE_HOUR_UTC:TRADE_MINUTE_UTC."""
+    now = datetime.now(timezone.utc)
+    target = now.replace(hour=TRADE_HOUR_UTC, minute=TRADE_MINUTE_UTC, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Polymarket Weather Trading Bot")
+    parser = argparse.ArgumentParser(description="Polymarket Weather Trading Bot - COMBtop2")
     parser.add_argument("--dry-run", action="store_true", default=True,
                         help="Simula ordini senza piazzarli (default: True)")
     parser.add_argument("--live", action="store_true",
@@ -1035,8 +1004,8 @@ def main():
                         help="Esegui un solo ciclo e esci")
     parser.add_argument("--min-edge", type=float, default=MIN_EDGE_PP,
                         help=f"Edge minimo in pp (default: {MIN_EDGE_PP})")
-    parser.add_argument("--max-bet", type=float, default=MAX_BET_USD,
-                        help=f"Puntata massima $ (default: {MAX_BET_USD})")
+    parser.add_argument("--bet", type=float, default=BET_SIZE_USD,
+                        help=f"Puntata fissa $ per mercato (default: {BET_SIZE_USD})")
     parser.add_argument("--days", type=int, default=DAYS_AHEAD,
                         help=f"Giorni avanti (default: {DAYS_AHEAD})")
 
@@ -1045,13 +1014,15 @@ def main():
 
     # Aggiorna config da args
     import bot_trading as _self
-    _self.MAX_BET_USD = args.max_bet
+    _self.BET_SIZE_USD = args.bet
 
     mode = "DRY-RUN" if dry_run else "LIVE"
     log.info(f"{'='*60}")
     log.info(f"  POLYMARKET WEATHER TRADING BOT - {mode}")
-    log.info(f"  Min edge: {args.min_edge}pp | Max bet: ${args.max_bet}")
-    log.info(f"  Max exposure: ${MAX_EXPOSURE_USD} | Kelly: {KELLY_FRACTION}")
+    log.info(f"  Strategia: COMBtop2 | Min edge: {args.min_edge}pp")
+    log.info(f"  Puntata fissa: ${args.bet} per mercato")
+    log.info(f"  Orario trading: {TRADE_HOUR_UTC}:{TRADE_MINUTE_UTC:02d} UTC (ogni giorno)")
+    log.info(f"  Filtri: p<={MAX_MARKET_PRICE:.0%} mxP<{MAX_MODEL_PEAK:.0%} dist>={MIN_DIST_FROM_PEAK} spr>={MIN_SPREAD}")
     log.info(f"{'='*60}")
 
     if not dry_run:
@@ -1071,16 +1042,23 @@ def main():
         run_cycle(state, client, args.min_edge, args.days, dry_run)
         return
 
-    # Loop continuo
+    # Loop giornaliero: aspetta le 17:10 UTC, esegui, ripeti
     while True:
+        wait = seconds_until_next_trade()
+        next_time = datetime.now(timezone.utc) + timedelta(seconds=wait)
+        log.info(f"Prossimo trading: {next_time.strftime('%Y-%m-%d %H:%M UTC')} (tra {wait/3600:.1f}h)")
+
+        time_mod.sleep(wait)
+
+        log.info(f"{'='*40} TRADING CYCLE {'='*40}")
         try:
             run_cycle(state, client, args.min_edge, args.days, dry_run)
         except Exception as e:
             log.error(f"Errore nel ciclo: {e}")
             log.debug(traceback.format_exc())
 
-        log.info(f"Prossimo ciclo tra {CHECK_INTERVAL}s...")
-        time_mod.sleep(CHECK_INTERVAL)
+        # Pausa 60s per evitare doppio trigger
+        time_mod.sleep(60)
 
 
 if __name__ == "__main__":
