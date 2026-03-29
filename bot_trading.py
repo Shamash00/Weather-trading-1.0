@@ -58,6 +58,8 @@ MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
 # ── Limiti di rischio ────────────────────────────────────────────────────────
 MIN_EDGE_PP = 5.0           # Edge minimo in percentage points per piazzare ordine
 BET_SIZE_USD = 1.0          # Puntata fissa per ogni mercato ($)
+PRICE_TOLERANCE = 0.005     # Tolleranza prezzo: compra fino a +0.5% sopra il prezzo di mercato
+ORDER_EXPIRATION_SECS = 3 * 3600  # Scadenza limit order: 3 ore
 
 # API endpoints
 GAMMA_API = "https://gamma-api.polymarket.com"
@@ -777,16 +779,24 @@ def init_clob_client():
 
 
 def place_order(client, token_id: str, side: str, size_usd: float,
-                price: float, dry_run: bool = True) -> dict | None:
+                market_price: float, dry_run: bool = True) -> dict | None:
     """
-    Piazza un ordine su Polymarket.
-    side: "BUY" o "SELL"
-    price: prezzo YES (0-1)
-    size_usd: quanto puntare in $
+    Piazza un LIMIT ORDER su Polymarket.
+    Prezzo = prezzo di mercato attuale + tolleranza (0.5%).
+    Scadenza = 3 ore.
     """
+    # Prezzo limite: prezzo di mercato + tolleranza, arrotondato a 2 decimali
+    limit_price = round(min(market_price + PRICE_TOLERANCE, 0.99), 2)
+    # Polymarket accetta prezzi con 2 decimali (0.01 - 0.99)
+    limit_price = max(limit_price, 0.01)
+
+    expiration = int((datetime.now(timezone.utc) + timedelta(seconds=ORDER_EXPIRATION_SECS)).timestamp())
+
     if dry_run:
-        log.info(f"    [DRY-RUN] {side} ${size_usd:.2f} @ {price:.3f} (token: {token_id[:16]}...)")
-        return {"dry_run": True, "side": side, "size": size_usd, "price": price}
+        log.info(f"    [DRY-RUN] LIMIT {side} ${size_usd:.2f} @ {limit_price:.2f} "
+                 f"(mkt={market_price:.2f}, exp=3h, token: {token_id[:16]}...)")
+        return {"dry_run": True, "side": side, "size": size_usd,
+                "limit_price": limit_price, "market_price": market_price}
 
     if client is None:
         log.warning("    Client CLOB non disponibile, ordine saltato")
@@ -794,19 +804,21 @@ def place_order(client, token_id: str, side: str, size_usd: float,
 
     try:
         from py_clob_client.clob_types import OrderArgs
-        from py_clob_client.order_builder.constants import BUY, SELL
+        from py_clob_client.order_builder.constants import BUY
 
         order_args = OrderArgs(
-            price=price,
+            price=limit_price,
             size=size_usd,
-            side=BUY if side == "BUY" else SELL,
+            side=BUY,
             token_id=token_id,
+            expiration=expiration,
         )
 
         signed_order = client.create_order(order_args)
         result = client.post_order(signed_order)
 
-        log.info(f"    ORDINE PIAZZATO: {side} ${size_usd:.2f} @ {price:.3f}")
+        log.info(f"    ORDINE PIAZZATO: LIMIT BUY ${size_usd:.2f} @ {limit_price:.2f} "
+                 f"(mkt={market_price:.2f}, scade tra 3h)")
         return result
 
     except Exception as e:
@@ -917,9 +929,10 @@ def execute_trades(client, trades: list[dict], state: dict,
 
         price = trade["market_prob"]
 
+        limit_price = round(min(price + PRICE_TOLERANCE, 0.99), 2)
         log.info(f"  >>> BUY YES {trade['label']}: "
                  f"modello={trade['my_prob']:.1%} mercato={price:.1%} "
-                 f"edge={trade['edge_pp']:+.1f}pp bet=${BET_SIZE_USD:.2f}")
+                 f"edge={trade['edge_pp']:+.1f}pp | ${BET_SIZE_USD:.2f} @ {limit_price:.2f} (exp 3h)")
 
         result = place_order(client, token_id, "BUY", BET_SIZE_USD, price, dry_run)
 
