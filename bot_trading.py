@@ -1,22 +1,25 @@
 """
 Polymarket Weather Trading Bot - LIVE TRADING
+Strategia: COMBtop2
 
-Bot che piazza ordini reali su Polymarket basandosi sulle previsioni
-meteo ensemble + mixture model calibrato.
+Usa il mixture model calibrato (deterministici + isotonica) per calcolare
+le probabilita reali di ogni bucket di temperatura. Compra YES solo su
+bucket sottovalutati dal mercato, applicando filtri rigorosi:
 
-Flusso:
-1. Scarica mercati temperatura da Polymarket
-2. Per ogni mercato: calcola probabilita (ensemble + mixture calibrato)
-3. Confronta con odds Polymarket → calcola edge
-4. Se edge > soglia → piazza ordine (BUY YES o BUY NO)
+  - p <= 10%     : solo bucket con prezzo Polymarket <= 10 centesimi
+  - mxP < 55%    : la prob massima del modello deve essere < 55%
+  - dist >= 1    : almeno 1 posizione di distanza dal picco del modello
+  - spr >= 0.6   : spread inter-modello >= 0.6°C
+  - Top 2        : max 2 scommesse per mercato (i 2 edge piu alti)
 
 Uso:
-    python bot_trading.py                     # avvia trading bot
-    python bot_trading.py --dry-run           # simula senza piazzare ordini
+    python bot_trading.py                     # avvia in dry-run (default)
+    python bot_trading.py --live              # piazza ordini reali
     python bot_trading.py --once              # un solo ciclo e esci
     python bot_trading.py --min-edge 8        # edge minimo 8pp (default: 5)
+    python bot_trading.py --max-bet 50        # puntata max $50 (default: $20)
 
-Variabili d'ambiente richieste:
+Variabili d'ambiente (richieste solo per --live):
     POLY_API_KEY        API key Polymarket
     POLY_API_SECRET     API secret Polymarket
     POLY_PASSPHRASE     Passphrase Polymarket
@@ -44,7 +47,14 @@ from scipy.stats import norm
 CHECK_INTERVAL = 300        # Secondi tra ogni ciclo di trading (5 min)
 DAYS_AHEAD = 2              # Considera mercati fino a N giorni avanti
 
-# Soglie di trading
+# ── Strategia COMBtop2 ───────────────────────────────────────────────────────
+TOP_N = 2                   # Massimo N bucket per mercato su cui puntare
+MAX_MARKET_PRICE = 0.10     # Prezzo Polymarket massimo (p <= 10%)
+MAX_MODEL_PEAK = 0.55       # Prob massima modello su singolo bucket (mxP < 55%)
+MIN_DIST_FROM_PEAK = 1      # Distanza minima (in posizioni) dal bucket picco del modello
+MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
+
+# ── Limiti di rischio ────────────────────────────────────────────────────────
 MIN_EDGE_PP = 5.0           # Edge minimo in percentage points per piazzare ordine
 MAX_BET_USD = 20.0          # Puntata massima per singolo ordine ($)
 MIN_BET_USD = 1.0           # Puntata minima
@@ -826,55 +836,88 @@ def place_order(client, token_id: str, side: str, size_usd: float,
 # TRADING LOGIC
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def find_trades(market: dict, model_probs: dict, min_edge: float) -> list[dict]:
+def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]:
     """
-    Trova opportunita di trading in un mercato.
-    Ritorna lista di trade da eseguire.
-    """
-    trades = []
+    Strategia COMBtop2: trova opportunita di trading in un mercato.
 
-    for bucket in market["buckets"]:
+    Filtri:
+    - p <= 10%: solo bucket con prezzo Polymarket <= MAX_MARKET_PRICE
+    - mxP < 55%: prob massima del modello su un singolo bucket < MAX_MODEL_PEAK
+    - dist >= 1: bucket ad almeno MIN_DIST_FROM_PEAK posizioni dal picco modello
+    - spr >= 0.6: spread inter-modello >= MIN_SPREAD
+    - Top 2: prendi i TOP_N bucket con edge positivo piu alto
+    """
+    model_probs = model_result["probs"]
+    spread = model_result["spread"]
+
+    # ── Filtro spread inter-modello ──────────────────────────────────────
+    if spread < MIN_SPREAD:
+        log.info(f"  SKIP: spread={spread:.2f}°C < {MIN_SPREAD}°C (modelli troppo d'accordo)")
+        return []
+
+    # ── Filtro prob massima modello ──────────────────────────────────────
+    max_model_prob = max(model_probs.values()) if model_probs else 0
+    if max_model_prob >= MAX_MODEL_PEAK:
+        log.info(f"  SKIP: max prob modello={max_model_prob:.0%} >= {MAX_MODEL_PEAK:.0%} (troppo concentrato)")
+        return []
+
+    # ── Trova posizione del bucket picco del modello ─────────────────────
+    bucket_labels = [b["label"] for b in market["buckets"]]
+    peak_label = max(model_probs, key=model_probs.get)
+    peak_idx = bucket_labels.index(peak_label) if peak_label in bucket_labels else -1
+
+    # ── Valuta ogni bucket ───────────────────────────────────────────────
+    candidates = []
+    for i, bucket in enumerate(market["buckets"]):
         label = bucket["label"]
         pm_prob = bucket["prob"]
         my_prob = model_probs.get(label, 0.0)
         edge_pp = (my_prob - pm_prob) * 100
 
-        if abs(edge_pp) < min_edge:
+        # Solo edge positivo (modello vede piu valore del mercato)
+        if edge_pp <= 0:
             continue
 
-        if edge_pp > 0:
-            # Il modello dice prob piu alta del mercato → BUY YES
-            trades.append({
-                "label": label,
-                "side": "BUY",
-                "target": "YES",
-                "my_prob": my_prob,
-                "market_prob": pm_prob,
-                "edge_pp": edge_pp,
-                "token_id": bucket.get("token_id"),
-                "condition_id": bucket.get("condition_id"),
-            })
-        else:
-            # Il modello dice prob piu bassa del mercato → BUY NO (= SELL YES)
-            trades.append({
-                "label": label,
-                "side": "BUY",
-                "target": "NO",
-                "my_prob": 1 - my_prob,
-                "market_prob": 1 - pm_prob,
-                "edge_pp": abs(edge_pp),
-                "token_id": bucket.get("token_id"),
-                "condition_id": bucket.get("condition_id"),
-            })
+        # Filtro prezzo Polymarket: p <= 10%
+        if pm_prob > MAX_MARKET_PRICE:
+            continue
 
-    # Ordina per edge decrescente
-    trades.sort(key=lambda t: t["edge_pp"], reverse=True)
+        # Filtro distanza dal picco: dist >= 1
+        if peak_idx >= 0:
+            dist = abs(i - peak_idx)
+            if dist < MIN_DIST_FROM_PEAK:
+                continue
+
+        # Filtro edge minimo
+        if edge_pp < min_edge:
+            continue
+
+        candidates.append({
+            "label": label,
+            "side": "BUY",
+            "target": "YES",
+            "my_prob": my_prob,
+            "market_prob": pm_prob,
+            "edge_pp": edge_pp,
+            "token_id": bucket.get("token_id"),
+            "condition_id": bucket.get("condition_id"),
+        })
+
+    # ── Top N per edge ───────────────────────────────────────────────────
+    candidates.sort(key=lambda t: t["edge_pp"], reverse=True)
+    trades = candidates[:TOP_N]
+
+    if candidates and not trades:
+        log.info(f"  Nessun candidato passa tutti i filtri")
+    elif len(candidates) > TOP_N:
+        log.info(f"  {len(candidates)} candidati, selezionati top {TOP_N}")
+
     return trades
 
 
 def execute_trades(client, trades: list[dict], state: dict,
                    dry_run: bool = True) -> int:
-    """Esegue i trade trovati, rispettando i limiti di rischio."""
+    """Esegue i trade COMBtop2 (sempre BUY YES su bucket a basso prezzo)."""
     executed = 0
     current_exposure = state.get("total_exposure", 0.0)
 
@@ -891,18 +934,14 @@ def execute_trades(client, trades: list[dict], state: dict,
         try:
             if isinstance(token_ids, str):
                 token_ids = json.loads(token_ids)
-
-            if trade["target"] == "YES":
-                token_id = token_ids[0]
-                price = trade["market_prob"]
-            else:
-                token_id = token_ids[1]
-                price = trade["market_prob"]  # gia 1 - pm_prob per NO
+            token_id = token_ids[0]  # YES token (COMBtop2 compra sempre YES)
         except (json.JSONDecodeError, IndexError, TypeError):
             log.warning(f"  Token ID non valido per {trade['label']}")
             continue
 
-        # Position sizing
+        price = trade["market_prob"]
+
+        # Position sizing (Kelly frazionario)
         remaining = MAX_EXPOSURE_USD - current_exposure
         bet_size = kelly_bet_size(trade["my_prob"], price, remaining)
         bet_size = min(bet_size, MAX_BET_USD, remaining)
@@ -910,8 +949,8 @@ def execute_trades(client, trades: list[dict], state: dict,
         if bet_size < MIN_BET_USD:
             continue
 
-        log.info(f"  >>> {trade['target']} {trade['label']}: "
-                 f"mio={trade['my_prob']:.0%} mkt={price:.0%} "
+        log.info(f"  >>> BUY YES {trade['label']}: "
+                 f"modello={trade['my_prob']:.1%} mercato={price:.1%} "
                  f"edge={trade['edge_pp']:+.1f}pp bet=${bet_size:.2f}")
 
         result = place_order(client, token_id, "BUY", bet_size, price, dry_run)
@@ -919,12 +958,10 @@ def execute_trades(client, trades: list[dict], state: dict,
         if result:
             current_exposure += bet_size
             executed += 1
-
-            # Salva ordine nello state
             state.setdefault("orders", []).append({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "city": trade.get("city", ""),
                 "label": trade["label"],
-                "target": trade["target"],
                 "my_prob": round(trade["my_prob"], 4),
                 "market_prob": round(price, 4),
                 "edge_pp": round(trade["edge_pp"], 1),
@@ -972,8 +1009,8 @@ def run_cycle(state: dict, client, min_edge: float,
         if not result:
             continue
 
-        # Trova trade
-        trades = find_trades(mkt, result["probs"], min_edge)
+        # Trova trade (strategia COMBtop2)
+        trades = find_trades(mkt, result, min_edge)
         if not trades:
             log.info(f"  Nessun edge > {min_edge}pp")
             continue
@@ -1006,8 +1043,9 @@ def main():
     args = parser.parse_args()
     dry_run = not args.live
 
-    global MAX_BET_USD
-    MAX_BET_USD = args.max_bet
+    # Aggiorna config da args
+    import bot_trading as _self
+    _self.MAX_BET_USD = args.max_bet
 
     mode = "DRY-RUN" if dry_run else "LIVE"
     log.info(f"{'='*60}")
