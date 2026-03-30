@@ -641,7 +641,7 @@ def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]
                 continue
 
             label = m.get("groupItemTitle") or m.get("question", "")
-            prob_raw = m.get("lastTradePrice") or m.get("bestAsk") or 0
+            prob_raw = m.get("bestAsk") or m.get("lastTradePrice") or 0
             try:
                 prob = float(prob_raw)
             except (ValueError, TypeError):
