@@ -56,7 +56,7 @@ SKIP_IF_SAME_PEAK = True    # Skippa mercato se picco modello = picco Polymarket
 MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
 
 # ── Limiti di rischio ────────────────────────────────────────────────────────
-MIN_EDGE_PP = 5.0           # Edge minimo in percentage points per piazzare ordine
+MIN_EDGE_PP = 0.0           # Nessun edge minimo: punta sui top 2 edge positivi
 BET_SIZE_USD = 1.0          # Puntata fissa per ogni mercato ($)
 PRICE_TOLERANCE = 0.005     # Tolleranza prezzo: +0.5% solo se prezzo mercato > 5%
 PRICE_TOLERANCE_THRESHOLD = 0.05  # Sotto questa soglia, niente tolleranza
@@ -879,10 +879,6 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
 
         # Filtro prezzo Polymarket: p <= 10%
         if pm_prob > MAX_MARKET_PRICE:
-            continue
-
-        # Filtro edge minimo
-        if edge_pp < min_edge:
             continue
 
         candidates.append({
