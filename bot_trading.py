@@ -857,10 +857,10 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
         log.info(f"  SKIP: max prob modello={max_model_prob:.0%} >= {MAX_MODEL_PEAK:.0%} (troppo concentrato)")
         return []
 
-    # ── Trova posizione del bucket picco del modello ─────────────────────
+    # ── Trova posizione del bucket picco Polymarket (il piu quotato) ────
     bucket_labels = [b["label"] for b in market["buckets"]]
-    peak_label = max(model_probs, key=model_probs.get)
-    peak_idx = bucket_labels.index(peak_label) if peak_label in bucket_labels else -1
+    peak_idx = max(range(len(market["buckets"])),
+                   key=lambda i: market["buckets"][i]["prob"])
 
     # ── Valuta ogni bucket ───────────────────────────────────────────────
     candidates = []
@@ -878,11 +878,10 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
         if pm_prob > MAX_MARKET_PRICE:
             continue
 
-        # Filtro distanza dal picco: dist >= 1
-        if peak_idx >= 0:
-            dist = abs(i - peak_idx)
-            if dist < MIN_DIST_FROM_PEAK:
-                continue
+        # Filtro distanza dal picco Polymarket: dist >= 1
+        dist = abs(i - peak_idx)
+        if dist < MIN_DIST_FROM_PEAK:
+            continue
 
         # Filtro edge minimo
         if edge_pp < min_edge:
