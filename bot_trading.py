@@ -52,7 +52,7 @@ DAYS_AHEAD = 1              # Considera solo mercati del giorno dopo (domani)
 TOP_N = 2                   # Massimo N bucket per mercato su cui puntare
 MAX_MARKET_PRICE = 0.10     # Prezzo Polymarket massimo (p <= 10%)
 MAX_MODEL_PEAK = 0.55       # Prob massima modello su singolo bucket (mxP < 55%)
-MIN_DIST_FROM_PEAK = 1      # Distanza minima (in posizioni) dal bucket picco del modello
+SKIP_IF_SAME_PEAK = True    # Skippa mercato se picco modello = picco Polymarket
 MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
 
 # ── Limiti di rischio ────────────────────────────────────────────────────────
@@ -857,10 +857,13 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
         log.info(f"  SKIP: max prob modello={max_model_prob:.0%} >= {MAX_MODEL_PEAK:.0%} (troppo concentrato)")
         return []
 
-    # ── Trova posizione del bucket picco Polymarket (il piu quotato) ────
-    bucket_labels = [b["label"] for b in market["buckets"]]
-    peak_idx = max(range(len(market["buckets"])),
-                   key=lambda i: market["buckets"][i]["prob"])
+    # ── Filtro same peak: se modello e Polymarket concordano sul favorito → skip ──
+    if SKIP_IF_SAME_PEAK:
+        model_peak = max(model_probs, key=model_probs.get)
+        poly_peak = max(market["buckets"], key=lambda b: b["prob"])["label"]
+        if model_peak == poly_peak:
+            log.info(f"  SKIP: picco modello = picco Polymarket ({model_peak}), mercato ben prezzato")
+            return []
 
     # ── Valuta ogni bucket ───────────────────────────────────────────────
     candidates = []
@@ -876,11 +879,6 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
 
         # Filtro prezzo Polymarket: p <= 10%
         if pm_prob > MAX_MARKET_PRICE:
-            continue
-
-        # Filtro distanza dal picco Polymarket: dist >= 1
-        dist = abs(i - peak_idx)
-        if dist < MIN_DIST_FROM_PEAK:
             continue
 
         # Filtro edge minimo
@@ -1042,7 +1040,7 @@ def main():
     log.info(f"  Strategia: COMBtop2 | Min edge: {args.min_edge}pp")
     log.info(f"  Puntata fissa: ${args.bet} per mercato")
     log.info(f"  Orario trading: {TRADE_HOUR_UTC}:{TRADE_MINUTE_UTC:02d} UTC (ogni giorno)")
-    log.info(f"  Filtri: p<={MAX_MARKET_PRICE:.0%} mxP<{MAX_MODEL_PEAK:.0%} dist>={MIN_DIST_FROM_PEAK} spr>={MIN_SPREAD}")
+    log.info(f"  Filtri: p<={MAX_MARKET_PRICE:.0%} mxP<{MAX_MODEL_PEAK:.0%} samePeak=skip spr>={MIN_SPREAD}")
     log.info(f"{'='*60}")
 
     if not dry_run:
