@@ -897,7 +897,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -925,7 +925,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1365,7 +1365,8 @@ def do_deterministic_forecast(city: str, target_date: str,
 def mixture_bucket_probs(raw_forecasts: dict[str, float],
                           city_opt: str, season: str,
                           parsed_buckets: list[dict],
-                          lead_time: str = "D1") -> dict | None:
+                          lead_time: str = "D1",
+                          use_spread_in_sigma: bool = True) -> dict | None:
     """
     Calcola probabilita per bucket usando mixture-of-normals calibrato.
 
@@ -1420,9 +1421,12 @@ def mixture_bucket_probs(raw_forecasts: dict[str, float],
     corrected_means = [m["mu_c"] for m in models_used]
     inter_model_spread = float(np.std(corrected_means))
 
-    # Sigma potenziata: sqrt(sigma_storico² + spread²)
+    # Sigma potenziata: sqrt(sigma_storico² + spread²) oppure sigma grezzo
     for m in models_used:
-        m["sigma_enh"] = np.sqrt(m["sigma"]**2 + inter_model_spread**2)
+        if use_spread_in_sigma:
+            m["sigma_enh"] = np.sqrt(m["sigma"]**2 + inter_model_spread**2)
+        else:
+            m["sigma_enh"] = m["sigma"]
 
     # Media pesata
     weighted_mean_c = sum(m["mu_c"] * m["weight_norm"] for m in models_used)
@@ -1518,6 +1522,48 @@ def do_mixture_forecast(city: str, target_date: str,
 
     if result:
         log.info(f"    Mixture: {result['n_models_used']} modelli usati, "
+                 f"spread={result['inter_model_spread']:.2f}°C, "
+                 f"media={result['weighted_mean_c']:.1f}°C")
+
+    return result
+
+
+def do_mixture_forecast_fixed(city: str, target_date: str,
+                               parsed_buckets: list[dict]) -> dict | None:
+    """
+    Come do_mixture_forecast ma senza aggiungere lo spread inter-modello al sigma.
+    Il mixture cattura gia' il disaccordo tra modelli tramite le diverse medie,
+    aggiungere lo spread al sigma conta l'incertezza due volte.
+    """
+    opt_city = CITY_NAME_TO_OPT.get(city)
+    if not opt_city:
+        return None
+
+    model_stats_data = load_model_stats()
+    if not model_stats_data or "stats" not in model_stats_data:
+        return None
+
+    city_data = match_city(city)
+    if not city_data:
+        return None
+
+    month = int(target_date.split("-")[1])
+    season = get_season(month, opt_city)
+
+    log.info(f"    Mixture Fixed: fetching {len(ALL_DETERMINISTIC_MODELS)} modelli deterministici...")
+    raw = fetch_deterministic_for_city(
+        city_data["lat"], city_data["lon"], target_date, ALL_DETERMINISTIC_MODELS)
+    log.info(f"    Mixture Fixed: {len(raw)}/{len(ALL_DETERMINISTIC_MODELS)} modelli ricevuti")
+
+    if len(raw) < 3:
+        log.info(f"    Mixture Fixed: troppi pochi modelli, skip")
+        return None
+
+    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets,
+                                   use_spread_in_sigma=False)
+
+    if result:
+        log.info(f"    Mixture Fixed: {result['n_models_used']} modelli usati, "
                  f"spread={result['inter_model_spread']:.2f}°C, "
                  f"media={result['weighted_mean_c']:.1f}°C")
 
@@ -2066,6 +2112,7 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              mixture_opt: dict | None = None,
                              mixture_top5: dict | None = None,
                              mixture_top10: dict | None = None,
+                             mixture_fixed: dict | None = None,
 ):
     """Scrive nel file Excel combinato con fogli probabilita.
     Raggruppa i diversi orari nella stessa sezione per citta/data."""
@@ -2282,6 +2329,15 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_top10['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Comb 4", mix_t10_probs, mix_t10_info)
 
+    # ── Foglio 8: Prob Combinate Fixato (mixture senza spread in sigma) ──
+    if mixture_fixed:
+        mix_fix_probs = mixture_fixed.get("mixture_probs", {})
+        if mix_fix_probs:
+            mix_fix_info = (f"MIXTURE FIXATO (no spread in σ) | {mixture_fixed['n_models_used']} modelli | "
+                            f"spread={mixture_fixed['inter_model_spread']:.2f}°C | "
+                            f"media={mixture_fixed['weighted_mean_c']:.1f}°C")
+            _write_prob_sheet("Prob Combinate Fixato", mix_fix_probs, mix_fix_info)
+
     wb.save(EXCEL_COMBINED)
 
 
@@ -2298,7 +2354,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2418,6 +2474,10 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Mixture top10: avvio...")
     mixture_top10 = do_mixture_forecast_top10(city, target_date, parsed_buckets)
 
+    # 3f. Mixture Fixed (senza spread in sigma - fix doppio conteggio)
+    log.info(f"    Mixture fixed: avvio...")
+    mixture_fixed = do_mixture_forecast_fixed(city, target_date, parsed_buckets)
+
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
@@ -2429,7 +2489,8 @@ def do_snapshot(market: dict, state: dict):
                              buckets, ensemble, deterministic, mixture, snapshot_mode,
                              mixture_opt=mixture_opt,
                              mixture_top5=mixture_top5,
-                             mixture_top10=mixture_top10)
+                             mixture_top10=mixture_top10,
+                             mixture_fixed=mixture_fixed)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
