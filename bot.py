@@ -1138,7 +1138,7 @@ def fetch_deterministic_for_city(lat: float, lon: float, forecast_date: str,
                 "models": ",".join(batch),
                 "start_date": forecast_date,
                 "end_date": forecast_date,
-                "timezone": "UTC",
+                "timezone": "auto",
             }, timeout=30)
 
             if r.status_code != 200:
