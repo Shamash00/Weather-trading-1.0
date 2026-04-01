@@ -108,6 +108,27 @@ ALL_DETERMINISTIC_MODELS = [
     "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
 ]
 
+# ── Tutti i modelli deterministici Open-Meteo (senza best_match e seamless) ─
+
+ALL_DET_FULL = [
+    "ecmwf_ifs", "ecmwf_ifs025", "ecmwf_aifs025_single",
+    "bom_access_global", "cma_grapes_global",
+    "icon_global", "icon_eu", "icon_d2",
+    "metno_nordic", "geosphere_arome_austria",
+    "dmi_harmonie_arome_europe",
+    "knmi_harmonie_arome_netherlands", "knmi_harmonie_arome_europe",
+    "gem_hrdps_west", "gem_hrdps_continental", "gem_regional", "gem_global",
+    "ncep_hgefs025_ensemble_mean", "ncep_aigfs025", "gfs_graphcast025",
+    "ncep_nam_conus", "ncep_nbm_conus", "gfs_hrrr", "gfs_global",
+    "jma_msm", "jma_gsm",
+    "kma_gdps", "kma_ldps",
+    "italia_meteo_arpae_icon_2i",
+    "meteofrance_arpege_europe", "meteofrance_arpege_world",
+    "meteofrance_arome_france", "meteofrance_arome_france_hd",
+    "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
+    "meteoswiss_icon_ch1", "meteoswiss_icon_ch2",
+]
+
 # ── Coordinate stazioni aeroportuali + timezone ──────────────────────────────
 
 CITY_DATA = {
@@ -897,7 +918,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -925,7 +946,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1482,6 +1503,137 @@ def mixture_bucket_probs(raw_forecasts: dict[str, float],
         "weighted_mean_c": weighted_mean_c,
         "models_detail": models_used,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TUTTI DETERMINISTICI - FETCH + EQUAL-WEIGHT MIXTURE (senza calibrazione)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def fetch_all_det_for_city(lat: float, lon: float, forecast_date: str) -> dict[str, float]:
+    """
+    Chiama Open-Meteo con TUTTI i 37 modelli deterministici (ALL_DET_FULL).
+    Una singola chiamata con tutti i modelli, timezone=auto, daily=temperature_2m_max.
+    Ritorna {model_name: T_max_celsius}.
+    """
+    results = {}
+    try:
+        r = requests.get(DETERMINISTIC_API, params={
+            "latitude": lat,
+            "longitude": lon,
+            "daily": "temperature_2m_max",
+            "models": ",".join(ALL_DET_FULL),
+            "start_date": forecast_date,
+            "end_date": forecast_date,
+            "timezone": "auto",
+        }, timeout=60)
+
+        if r.status_code != 200:
+            log.warning(f"  AllDet API errore {r.status_code}")
+            return results
+
+        data = r.json()
+        daily = data.get("daily", {})
+        times = daily.get("time", [])
+
+        if forecast_date not in times:
+            return results
+        idx = times.index(forecast_date)
+
+        for model in ALL_DET_FULL:
+            key = f"temperature_2m_max_{model}"
+            if key in daily and daily[key][idx] is not None:
+                results[model] = daily[key][idx]
+
+    except Exception as e:
+        log.warning(f"  AllDet fetch error: {e}")
+
+    return results
+
+
+def all_det_mixture_probs(raw_forecasts: dict[str, float],
+                           parsed_buckets: list[dict]) -> dict | None:
+    """
+    Calcola probabilita per bucket usando equal-weight mixture of Gaussians.
+    Ogni modello contribuisce N(forecast, sigma^2) con peso 1/N.
+    sigma = max(std dei forecast, 1.5°C) come stima dal disaccordo.
+    Nessuna calibrazione isotonica, nessun bias correction.
+    """
+    from scipy.stats import norm
+
+    if not parsed_buckets or len(raw_forecasts) < 3:
+        return None
+
+    unit = parsed_buckets[0]["unit"] if parsed_buckets[0] else "C"
+
+    forecasts_c = list(raw_forecasts.values())
+    n_models = len(forecasts_c)
+    mean_c = float(np.mean(forecasts_c))
+    spread_c = float(np.std(forecasts_c))
+    sigma_c = max(spread_c, 1.5)
+    w = 1.0 / n_models
+
+    probs = {}
+    for b in parsed_buckets:
+        if b is None:
+            continue
+        p = 0.0
+        for fc in forecasts_c:
+            if unit == "F":
+                mu = fc * 9 / 5 + 32
+                sigma = sigma_c * 9 / 5
+            else:
+                mu = fc
+                sigma = sigma_c
+
+            sigma = max(sigma, 0.3)
+
+            if b["is_lower"]:
+                p += w * norm.cdf((b["high"] + 0.5 - mu) / sigma)
+            elif b["is_upper"]:
+                p += w * (1 - norm.cdf((b["low"] - 0.5 - mu) / sigma))
+            else:
+                p += w * (norm.cdf((b["high"] + 0.5 - mu) / sigma) -
+                          norm.cdf((b["low"] - 0.5 - mu) / sigma))
+
+        probs[b["label"]] = max(0.0, p)
+
+    total = sum(probs.values())
+    if total > 0:
+        probs = {k: v / total for k, v in probs.items()}
+
+    return {
+        "probs": probs,
+        "n_models": n_models,
+        "mean_c": mean_c,
+        "spread_c": spread_c,
+        "sigma_c": sigma_c,
+        "per_model": raw_forecasts,
+    }
+
+
+def do_all_det_forecast(city: str, target_date: str,
+                         parsed_buckets: list[dict]) -> dict | None:
+    """Scarica tutti i 37 deterministici e calcola probabilita equal-weight mixture."""
+    city_data = match_city(city)
+    if not city_data:
+        return None
+
+    log.info(f"    Tutti Det: fetching {len(ALL_DET_FULL)} modelli...")
+    raw = fetch_all_det_for_city(city_data["lat"], city_data["lon"], target_date)
+    log.info(f"    Tutti Det: {len(raw)}/{len(ALL_DET_FULL)} modelli ricevuti")
+
+    if len(raw) < 3:
+        log.info(f"    Tutti Det: troppi pochi modelli, skip")
+        return None
+
+    result = all_det_mixture_probs(raw, parsed_buckets)
+
+    if result:
+        log.info(f"    Tutti Det: {result['n_models']} modelli, "
+                 f"spread={result['spread_c']:.2f}°C, sigma={result['sigma_c']:.2f}°C, "
+                 f"media={result['mean_c']:.1f}°C")
+
+    return result
 
 
 def do_mixture_forecast(city: str, target_date: str,
@@ -2113,6 +2265,7 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              mixture_top5: dict | None = None,
                              mixture_top10: dict | None = None,
                              mixture_fixed: dict | None = None,
+                             all_det: dict | None = None,
 ):
     """Scrive nel file Excel combinato con fogli probabilita.
     Raggruppa i diversi orari nella stessa sezione per citta/data."""
@@ -2338,6 +2491,15 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_fixed['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Combinate Fixato", mix_fix_probs, mix_fix_info)
 
+    # ── Foglio 9: Tutti Deterministici (37 modelli, equal-weight, no calibraz) ──
+    if all_det:
+        all_det_probs = all_det.get("probs", {})
+        if all_det_probs:
+            all_det_info = (f"EQUAL-WEIGHT MIXTURE | {all_det['n_models']} modelli | "
+                            f"spread={all_det['spread_c']:.2f}°C | σ={all_det['sigma_c']:.2f}°C | "
+                            f"media={all_det['mean_c']:.1f}°C")
+            _write_prob_sheet("Tutti Deterministici", all_det_probs, all_det_info)
+
     wb.save(EXCEL_COMBINED)
 
 
@@ -2354,7 +2516,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2478,6 +2640,10 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Mixture fixed: avvio...")
     mixture_fixed = do_mixture_forecast_fixed(city, target_date, parsed_buckets)
 
+    # 3g. Tutti Deterministici (37 modelli, equal-weight, no calibrazione)
+    log.info(f"    Tutti deterministici: avvio...")
+    all_det = do_all_det_forecast(city, target_date, parsed_buckets)
+
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     write_snapshot_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
@@ -2490,7 +2656,8 @@ def do_snapshot(market: dict, state: dict):
                              mixture_opt=mixture_opt,
                              mixture_top5=mixture_top5,
                              mixture_top10=mixture_top10,
-                             mixture_fixed=mixture_fixed)
+                             mixture_fixed=mixture_fixed,
+                             all_det=all_det)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
