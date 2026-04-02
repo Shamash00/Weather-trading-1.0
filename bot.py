@@ -918,7 +918,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -946,7 +946,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1722,6 +1722,118 @@ def do_mixture_forecast_fixed(city: str, target_date: str,
     return result
 
 
+def do_consensus_gaussian_forecast(city: str, target_date: str,
+                                    parsed_buckets: list[dict]) -> dict | None:
+    """
+    Singola gaussiana del consenso: N(media_pesata, SE²).
+    SE = sqrt(spread² + (median_sigma/sqrt(n))²)
+
+    Invece di un mixture con N gaussiane (ognuna con sigma individuale alto),
+    usa una sola gaussiana centrata sulla media pesata con sigma = standard error
+    del consenso. Evita le code gonfiate dei bucket estremi illimitati.
+    """
+    from scipy.stats import norm
+
+    opt_city = CITY_NAME_TO_OPT.get(city)
+    if not opt_city:
+        return None
+
+    model_stats_data = load_model_stats()
+    if not model_stats_data or "stats" not in model_stats_data:
+        return None
+
+    city_data = match_city(city)
+    if not city_data:
+        return None
+
+    month = int(target_date.split("-")[1])
+    season = get_season(month, opt_city)
+
+    log.info(f"    Consensus SE: fetching {len(ALL_DETERMINISTIC_MODELS)} modelli deterministici...")
+    raw = fetch_deterministic_for_city(
+        city_data["lat"], city_data["lon"], target_date, ALL_DETERMINISTIC_MODELS)
+    log.info(f"    Consensus SE: {len(raw)}/{len(ALL_DETERMINISTIC_MODELS)} modelli ricevuti")
+
+    if len(raw) < 3:
+        log.info(f"    Consensus SE: troppi pochi modelli, skip")
+        return None
+
+    all_stats = model_stats_data["stats"]
+    models_used = []
+    for model_name, forecast_c in raw.items():
+        if forecast_c is None:
+            continue
+        key = (opt_city, model_name, season, "D1")
+        if key not in all_stats:
+            continue
+        s = all_stats[key]
+        models_used.append({
+            "model": model_name, "forecast_c": forecast_c,
+            "bias": s["bias"], "sigma": s["sigma"],
+            "weight": s["weight"],
+            "mu_c": forecast_c - s["bias"],
+        })
+
+    if len(models_used) < 3:
+        return None
+
+    total_w = sum(m["weight"] for m in models_used)
+    for m in models_used:
+        m["weight_norm"] = m["weight"] / total_w
+
+    corrected_means = [m["mu_c"] for m in models_used]
+    inter_model_spread = float(np.std(corrected_means))
+    weighted_mean_c = sum(m["mu_c"] * m["weight_norm"] for m in models_used)
+    median_sigma = float(np.median([m["sigma"] for m in models_used]))
+    n = len(models_used)
+
+    # Standard error del consenso
+    se_c = np.sqrt(inter_model_spread**2 + (median_sigma / np.sqrt(n))**2)
+
+    if not parsed_buckets:
+        return None
+
+    unit = parsed_buckets[0]["unit"] if parsed_buckets[0] else "C"
+
+    if unit == "F":
+        mu = weighted_mean_c * 9 / 5 + 32
+        se = se_c * 9 / 5
+    else:
+        mu = weighted_mean_c
+        se = se_c
+    se = max(se, 0.3)
+
+    probs = {}
+    for b in parsed_buckets:
+        if b is None:
+            continue
+        if b["is_lower"]:
+            p = norm.cdf((b["high"] + 0.5 - mu) / se)
+        elif b["is_upper"]:
+            p = 1 - norm.cdf((b["low"] - 0.5 - mu) / se)
+        else:
+            p = (norm.cdf((b["high"] + 0.5 - mu) / se) -
+                 norm.cdf((b["low"] - 0.5 - mu) / se))
+        probs[b["label"]] = max(0.0, p)
+
+    total = sum(probs.values())
+    if total > 0:
+        probs = {k: v / total for k, v in probs.items()}
+
+    log.info(f"    Consensus SE: {n} modelli, "
+             f"spread={inter_model_spread:.2f}°C, SE={se_c:.2f}°C, "
+             f"media={weighted_mean_c:.1f}°C")
+
+    return {
+        "mixture_probs": probs,
+        "n_models_used": n,
+        "inter_model_spread": inter_model_spread,
+        "weighted_mean_c": weighted_mean_c,
+        "se_c": se_c,
+        "models_detail": models_used,
+    }
+
+
 def do_mixture_forecast_optimized(city: str, target_date: str,
                                    parsed_buckets: list[dict]) -> dict | None:
     """
@@ -2265,6 +2377,7 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              mixture_top5: dict | None = None,
                              mixture_top10: dict | None = None,
                              mixture_fixed: dict | None = None,
+                             consensus_se: dict | None = None,
                              all_det: dict | None = None,
 ):
     """Scrive nel file Excel combinato con fogli probabilita.
@@ -2491,7 +2604,17 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_fixed['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Combinate Fixato", mix_fix_probs, mix_fix_info)
 
-    # ── Foglio 9: Tutti Deterministici (37 modelli, equal-weight, no calibraz) ──
+    # ── Foglio 9b: Prob Comb Fix 2 (singola gaussiana del consenso, SE) ──
+    if consensus_se:
+        cse_probs = consensus_se.get("mixture_probs", {})
+        if cse_probs:
+            cse_info = (f"CONSENSO GAUSSIANO SE | {consensus_se['n_models_used']} modelli | "
+                        f"spread={consensus_se['inter_model_spread']:.2f}°C | "
+                        f"SE={consensus_se['se_c']:.2f}°C | "
+                        f"media={consensus_se['weighted_mean_c']:.1f}°C")
+            _write_prob_sheet("Prob Comb Fix 2", cse_probs, cse_info)
+
+    # ── Foglio 10: Tutti Deterministici (37 modelli, equal-weight, no calibraz) ──
     if all_det:
         all_det_probs = all_det.get("probs", {})
         if all_det_probs:
@@ -2516,7 +2639,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2640,6 +2763,10 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Mixture fixed: avvio...")
     mixture_fixed = do_mixture_forecast_fixed(city, target_date, parsed_buckets)
 
+    # 3g2. Consensus SE (singola gaussiana del consenso)
+    log.info(f"    Consensus SE: avvio...")
+    consensus_se = do_consensus_gaussian_forecast(city, target_date, parsed_buckets)
+
     # 3g. Tutti Deterministici (37 modelli, equal-weight, no calibrazione)
     log.info(f"    Tutti deterministici: avvio...")
     all_det = do_all_det_forecast(city, target_date, parsed_buckets)
@@ -2657,6 +2784,7 @@ def do_snapshot(market: dict, state: dict):
                              mixture_top5=mixture_top5,
                              mixture_top10=mixture_top10,
                              mixture_fixed=mixture_fixed,
+                             consensus_se=consensus_se,
                              all_det=all_det)
     log.info(f"    Excel dati_combinati aggiornato")
 
