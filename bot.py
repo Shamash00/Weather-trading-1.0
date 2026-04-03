@@ -3,19 +3,16 @@ Polymarket Weather Trading Bot - Daemon 24/7
 
 Il bot gira in background e, per ogni mercato di temperatura nelle 20 citta:
 
-1. DOPPIO SNAPSHOT (16:00 e 20:00 locali, giorno prima della risoluzione):
-   - Alle 16:00: snapshot "early" (include run 06z di tutti i modelli)
-   - Alle 20:00: snapshot "late"  (include run 12z ECMWF IFS, piu accurato)
-   - Per ciascuno: cattura odds Polymarket + dati ensemble Open-Meteo
-   - Permette di confrontare come cambiano le previsioni tra i due orari
+1. SNAPSHOT (16:10 locale di ogni citta, giorno prima della risoluzione):
+   - Cattura odds Polymarket + dati ensemble Open-Meteo
 
 2. RISOLUZIONE (dopo chiusura del mercato):
    - Controlla Polymarket per il bucket vincente
    - Registra il risultato nel file Excel
 
 Uso:
-    python bot.py                    # avvia daemon (snapshot alle 16:00 e 20:00 locali)
-    python bot.py --hours 18,22      # snapshot alle 18:00 e 22:00 locali
+    python bot.py                    # avvia daemon (snapshot alle 16:10 locali)
+    python bot.py --hours 18:10      # snapshot alle 18:10 locali
     python bot.py --once             # esegui un solo ciclo e esci
     python bot.py --status           # mostra stato corrente e esci
     python bot.py --days 3           # considera mercati fino a 3 giorni avanti (default: 3)
@@ -46,12 +43,9 @@ from openpyxl.utils import get_column_letter
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # Snapshot: lista di tuple (ora, minuto, mode)
-# mode="utc"   -> orario UTC fisso, uguale per tutte le citta
 # mode="local"  -> orario locale della citta target
 SNAPSHOT_HOURS = [
-    (16, 10, "local"),  # 16:10 locale — per comparazione con dati storici + ottimo per Americhe
-    (17, 10, "utc"),    # 17:10 UTC — 9/15 modelli 12Z (ottimo per Asia/Europa/Oceania)
-    (20, 10, "utc"),    # 20:10 UTC — 15/15 modelli 12Z, benchmark
+    (16, 10, "local"),  # 16:10 locale per ogni citta
 ]
 CHECK_INTERVAL = 60         # Secondi tra ogni check del loop principale
 EVENT_REFRESH_INTERVAL = 1800  # Refresh lista mercati ogni 30 minuti
@@ -82,7 +76,6 @@ EXCEL_FILE = DATA_DIR / "dati_meteo.xlsx"
 EXCEL_COMBINED = DATA_DIR / "dati_combinati.xlsx"
 OPTIMIZATION_FILE = BASE_DIR / "Ottimizzazione Ensemble Stagioni.xlsx"
 TOP_MODELS_FILE = BASE_DIR / "Top 5 Modelli per Citta.xlsx"
-TOP_MODELS_FILE_V2 = BASE_DIR / "Top Modelli Deterministici per Citta.xlsx"
 MODEL_STATS_FILE = BASE_DIR / "model_error_stats.pkl"
 LOG_FILE = DATA_DIR / "bot.log"
 
@@ -106,27 +99,6 @@ ALL_DETERMINISTIC_MODELS = [
     "meteofrance_arpege_europe", "meteofrance_arpege_world",
     "metno_seamless",
     "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
-]
-
-# ── Tutti i modelli deterministici Open-Meteo (senza best_match e seamless) ─
-
-ALL_DET_FULL = [
-    "ecmwf_ifs", "ecmwf_ifs025", "ecmwf_aifs025_single",
-    "bom_access_global", "cma_grapes_global",
-    "icon_global", "icon_eu", "icon_d2",
-    "metno_nordic", "geosphere_arome_austria",
-    "dmi_harmonie_arome_europe",
-    "knmi_harmonie_arome_netherlands", "knmi_harmonie_arome_europe",
-    "gem_hrdps_west", "gem_hrdps_continental", "gem_regional", "gem_global",
-    "ncep_hgefs025_ensemble_mean", "ncep_aigfs025", "gfs_graphcast025",
-    "ncep_nam_conus", "ncep_nbm_conus", "gfs_hrrr", "gfs_global",
-    "jma_msm", "jma_gsm",
-    "kma_gdps", "kma_ldps",
-    "italia_meteo_arpae_icon_2i",
-    "meteofrance_arpege_europe", "meteofrance_arpege_world",
-    "meteofrance_arome_france", "meteofrance_arome_france_hd",
-    "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
-    "meteoswiss_icon_ch1", "meteoswiss_icon_ch2",
 ]
 
 # ── Coordinate stazioni aeroportuali + timezone ──────────────────────────────
@@ -323,81 +295,6 @@ def load_model_stats() -> dict:
     n_entries = len(_model_stats_cache.get("stats", {}))
     log.info(f"Model stats caricati: {n_entries} combinazioni modello/citta/stagione")
     return _model_stats_cache
-
-
-# ── Caricamento top N modelli per citta (da Top 5 Modelli per Citta.xlsx) ────
-
-_top_models_cache = None
-
-def load_top_models() -> dict:
-    """
-    Carica i top modelli per citta. Usa il file aggiornato (v2).
-    Ritorna dict: {opt_city: {"top5": [model1, ...], "top10": [model1, ...]}}.
-    """
-    global _top_models_cache
-    if _top_models_cache is not None:
-        return _top_models_cache
-
-    # Usa la stessa logica di load_top_models_v2
-    _top_models_cache = load_top_models_v2()
-    return _top_models_cache
-
-
-# ── Caricamento top modelli v2 (classifica aggiornata) ───────────────────
-
-_top_models_v2_cache = None
-
-def load_top_models_v2() -> dict:
-    """
-    Carica i top modelli per citta dal file 'Top Modelli Deterministici per Citta.xlsx'.
-    Ritorna dict: {opt_city: {"top5": [model1, ...], "top10": [model1, ...]}}.
-    """
-    global _top_models_v2_cache
-    if _top_models_v2_cache is not None:
-        return _top_models_v2_cache
-
-    if not TOP_MODELS_FILE_V2.exists():
-        log.warning(f"File top modelli v2 non trovato: {TOP_MODELS_FILE_V2}")
-        _top_models_v2_cache = {}
-        return _top_models_v2_cache
-
-    wb = openpyxl.load_workbook(TOP_MODELS_FILE_V2, read_only=True, data_only=True)
-    result = {}
-
-    # Sheet names contengono °C - cerca per pattern
-    sheet_map = {}
-    for sn in wb.sheetnames:
-        if "Top 5" in sn and "1GG" in sn:
-            sheet_map["top5"] = sn
-        elif "Top 10" in sn and "1GG" in sn:
-            sheet_map["top10"] = sn
-
-    for key, sheet_name in sheet_map.items():
-        ws = wb[sheet_name]
-        for r in range(2, ws.max_row + 1):
-            city = ws.cell(r, 1).value
-            if not city:
-                continue
-            city = str(city).strip()
-            if city not in result:
-                result[city] = {"top5": [], "top10": []}
-
-            models = []
-            col = 2
-            while True:
-                model = ws.cell(r, col).value
-                if not model:
-                    break
-                models.append(str(model).strip())
-                col += 3  # salta V%C e V%F
-
-            result[city][key] = models
-
-    wb.close()
-    total = len(result)
-    log.info(f"Top modelli v2 caricati: {total} citta")
-    _top_models_v2_cache = result
-    return _top_models_v2_cache
 
 
 # ── Modelli ensemble ─────────────────────────────────────────────────────────
@@ -918,7 +815,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Comb 2", "Prob Combinate Fixato", "Prob Comb Fix 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -946,7 +843,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Comb 2", "Prob Combinate Fixato", "Prob Comb Fix 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1505,179 +1402,6 @@ def mixture_bucket_probs(raw_forecasts: dict[str, float],
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TUTTI DETERMINISTICI - FETCH + EQUAL-WEIGHT MIXTURE (senza calibrazione)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def fetch_all_det_for_city(lat: float, lon: float, forecast_date: str) -> dict[str, float]:
-    """
-    Chiama Open-Meteo con TUTTI i 37 modelli deterministici (ALL_DET_FULL).
-    Una singola chiamata con tutti i modelli, timezone=auto, daily=temperature_2m_max.
-    Ritorna {model_name: T_max_celsius}.
-    """
-    results = {}
-    try:
-        r = requests.get(DETERMINISTIC_API, params={
-            "latitude": lat,
-            "longitude": lon,
-            "daily": "temperature_2m_max",
-            "models": ",".join(ALL_DET_FULL),
-            "start_date": forecast_date,
-            "end_date": forecast_date,
-            "timezone": "auto",
-        }, timeout=60)
-
-        if r.status_code != 200:
-            log.warning(f"  AllDet API errore {r.status_code}")
-            return results
-
-        data = r.json()
-        daily = data.get("daily", {})
-        times = daily.get("time", [])
-
-        if forecast_date not in times:
-            return results
-        idx = times.index(forecast_date)
-
-        for model in ALL_DET_FULL:
-            key = f"temperature_2m_max_{model}"
-            if key in daily and daily[key][idx] is not None:
-                results[model] = daily[key][idx]
-
-    except Exception as e:
-        log.warning(f"  AllDet fetch error: {e}")
-
-    return results
-
-
-def all_det_mixture_probs(raw_forecasts: dict[str, float],
-                           parsed_buckets: list[dict]) -> dict | None:
-    """
-    Calcola probabilita per bucket usando equal-weight mixture of Gaussians.
-    Ogni modello contribuisce N(forecast, sigma^2) con peso 1/N.
-    sigma = max(std dei forecast, 1.5°C) come stima dal disaccordo.
-    Nessuna calibrazione isotonica, nessun bias correction.
-    """
-    from scipy.stats import norm
-
-    if not parsed_buckets or len(raw_forecasts) < 3:
-        return None
-
-    unit = parsed_buckets[0]["unit"] if parsed_buckets[0] else "C"
-
-    forecasts_c = list(raw_forecasts.values())
-    n_models = len(forecasts_c)
-    mean_c = float(np.mean(forecasts_c))
-    spread_c = float(np.std(forecasts_c))
-    sigma_c = max(spread_c, 1.5)
-    w = 1.0 / n_models
-
-    probs = {}
-    for b in parsed_buckets:
-        if b is None:
-            continue
-        p = 0.0
-        for fc in forecasts_c:
-            if unit == "F":
-                mu = fc * 9 / 5 + 32
-                sigma = sigma_c * 9 / 5
-            else:
-                mu = fc
-                sigma = sigma_c
-
-            sigma = max(sigma, 0.3)
-
-            if b["is_lower"]:
-                p += w * norm.cdf((b["high"] + 0.5 - mu) / sigma)
-            elif b["is_upper"]:
-                p += w * (1 - norm.cdf((b["low"] - 0.5 - mu) / sigma))
-            else:
-                p += w * (norm.cdf((b["high"] + 0.5 - mu) / sigma) -
-                          norm.cdf((b["low"] - 0.5 - mu) / sigma))
-
-        probs[b["label"]] = max(0.0, p)
-
-    total = sum(probs.values())
-    if total > 0:
-        probs = {k: v / total for k, v in probs.items()}
-
-    return {
-        "probs": probs,
-        "n_models": n_models,
-        "mean_c": mean_c,
-        "spread_c": spread_c,
-        "sigma_c": sigma_c,
-        "per_model": raw_forecasts,
-    }
-
-
-def do_all_det_forecast(city: str, target_date: str,
-                         parsed_buckets: list[dict]) -> dict | None:
-    """Scarica tutti i 37 deterministici e calcola probabilita equal-weight mixture."""
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    log.info(f"    Tutti Det: fetching {len(ALL_DET_FULL)} modelli...")
-    raw = fetch_all_det_for_city(city_data["lat"], city_data["lon"], target_date)
-    log.info(f"    Tutti Det: {len(raw)}/{len(ALL_DET_FULL)} modelli ricevuti")
-
-    if len(raw) < 3:
-        log.info(f"    Tutti Det: troppi pochi modelli, skip")
-        return None
-
-    result = all_det_mixture_probs(raw, parsed_buckets)
-
-    if result:
-        log.info(f"    Tutti Det: {result['n_models']} modelli, "
-                 f"spread={result['spread_c']:.2f}°C, sigma={result['sigma_c']:.2f}°C, "
-                 f"media={result['mean_c']:.1f}°C")
-
-    return result
-
-
-def do_mixture_forecast(city: str, target_date: str,
-                         parsed_buckets: list[dict]) -> dict | None:
-    """
-    Esegue il forecast mixture completo: scarica TUTTI i modelli deterministici
-    e calcola le probabilita calibrate per bucket.
-    """
-    opt_city = CITY_NAME_TO_OPT.get(city)
-    if not opt_city:
-        return None
-
-    # Verifica che model stats siano disponibili
-    model_stats_data = load_model_stats()
-    if not model_stats_data or "stats" not in model_stats_data:
-        log.debug(f"  Mixture: stats non disponibili")
-        return None
-
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    month = int(target_date.split("-")[1])
-    season = get_season(month, opt_city)
-
-    # Scarica TUTTI i modelli deterministici
-    log.info(f"    Mixture: fetching {len(ALL_DETERMINISTIC_MODELS)} modelli deterministici...")
-    raw = fetch_deterministic_for_city(
-        city_data["lat"], city_data["lon"], target_date, ALL_DETERMINISTIC_MODELS)
-    log.info(f"    Mixture: {len(raw)}/{len(ALL_DETERMINISTIC_MODELS)} modelli ricevuti")
-
-    if len(raw) < 3:
-        log.info(f"    Mixture: troppi pochi modelli, skip")
-        return None
-
-    # Calcola probabilita mixture
-    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
-
-    if result:
-        log.info(f"    Mixture: {result['n_models_used']} modelli usati, "
-                 f"spread={result['inter_model_spread']:.2f}°C, "
-                 f"media={result['weighted_mean_c']:.1f}°C")
-
-    return result
 
 
 def do_mixture_forecast_fixed(city: str, target_date: str,
@@ -1904,67 +1628,6 @@ def do_mixture_forecast_optimized(city: str, target_date: str,
 
 
 
-def _do_mixture_forecast_topN(city: str, target_date: str,
-                               parsed_buckets: list[dict],
-                               top_key: str) -> dict | None:
-    """
-    Mixture calibrato usando i top N modelli per Verde% storica.
-    top_key: "top5" o "top10".
-    """
-    opt_city = CITY_NAME_TO_OPT.get(city)
-    if not opt_city:
-        return None
-
-    model_stats_data = load_model_stats()
-    if not model_stats_data or "stats" not in model_stats_data:
-        return None
-
-    city_data = match_city(city)
-    if not city_data:
-        return None
-
-    month = int(target_date.split("-")[1])
-    season = get_season(month, opt_city)
-
-    # Carica top modelli — il file usa i nomi "confronto" (= opt_city)
-    top_models_data = load_top_models()
-    city_top = top_models_data.get(opt_city)
-    if not city_top or not city_top.get(top_key):
-        log.debug(f"  Mixture {top_key}: nessun modello trovato per {opt_city}")
-        return None
-
-    models = city_top[top_key]
-    label = top_key.upper()
-
-    log.info(f"    Mixture {label}: fetching {len(models)} modelli...")
-    raw = fetch_deterministic_for_city(
-        city_data["lat"], city_data["lon"], target_date, models)
-    log.info(f"    Mixture {label}: {len(raw)}/{len(models)} modelli ricevuti")
-
-    if len(raw) < 2:
-        log.info(f"    Mixture {label}: troppi pochi modelli, skip")
-        return None
-
-    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
-
-    if result:
-        log.info(f"    Mixture {label}: {result['n_models_used']} modelli usati, "
-                 f"spread={result['inter_model_spread']:.2f}°C, "
-                 f"media={result['weighted_mean_c']:.1f}°C")
-
-    return result
-
-
-def do_mixture_forecast_top5(city: str, target_date: str,
-                              parsed_buckets: list[dict]) -> dict | None:
-    """Mixture calibrato con i top 5 modelli per Verde% storica."""
-    return _do_mixture_forecast_topN(city, target_date, parsed_buckets, "top5")
-
-
-def do_mixture_forecast_top10(city: str, target_date: str,
-                               parsed_buckets: list[dict]) -> dict | None:
-    """Mixture calibrato con i top 10 modelli per Verde% storica."""
-    return _do_mixture_forecast_topN(city, target_date, parsed_buckets, "top10")
 
 
 
@@ -2390,14 +2053,10 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                              snapshot_hour: int, snapshot_minute: int,
                              polymarket_buckets: list[dict],
                              ensemble: dict, deterministic: dict | None,
-                             mixture: dict | None = None,
                              snapshot_mode: str = "local",
                              mixture_opt: dict | None = None,
-                             mixture_top5: dict | None = None,
-                             mixture_top10: dict | None = None,
                              mixture_fixed: dict | None = None,
                              consensus_se: dict | None = None,
-                             all_det: dict | None = None,
 ):
     """Scrive nel file Excel combinato con fogli probabilita.
     Raggruppa i diversi orari nella stessa sezione per citta/data."""
@@ -2410,11 +2069,6 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
 
     ens_probs = ensemble.get("combined_probs", {})
     det_probs = deterministic.get("gaussian_probs", {}) if deterministic else {}
-    verde = deterministic.get("verde", 0) if deterministic else 0
-    mix_probs = mixture.get("mixture_probs", {}) if mixture else {}
-
-    # Prob Combinate: solo mixture (deterministici con calibrazione isotonica)
-    comb_probs = mix_probs
 
     section_title = f"{city} — {target_date}"
 
@@ -2567,25 +2221,6 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
     ens_info = f"N={ensemble.get('n_total', 0)} membri da {ensemble.get('n_models', 0)} modelli"
     _write_prob_sheet("Prob Ensemble", ens_probs, ens_info)
 
-    # ── Foglio 3: Probabilita Combinate (usa mixture se disponibile) ────
-    if mix_probs:
-        comb_info = (f"MIXTURE CALIBRATO | {mixture['n_models_used']} modelli | "
-                     f"spread={mixture['inter_model_spread']:.2f}°C | "
-                     f"media={mixture['weighted_mean_c']:.1f}°C")
-    elif deterministic and det_probs:
-        alpha = 0.75 * verde / 100.0
-        alpha = min(alpha, 0.95)
-        comb_info = f"\u03b1={alpha:.2f} (75%\u00d7Verde) | Det\u00d7{alpha:.0%} + Ens\u00d7{1-alpha:.0%}"
-    else:
-        comb_info = "Solo ensemble (deterministici non disponibili)"
-    _write_prob_sheet("Prob Combinate", comb_probs, comb_info)
-
-    # ── Foglio 4: Prob Mixture dettaglio (se disponibile) ────────────────
-    if mix_probs:
-        mix_raw = mixture.get("mixture_probs_raw", mix_probs)
-        mix_detail_info = (f"Pre-calibrazione | {mixture['n_models_used']} modelli | "
-                           f"spread={mixture['inter_model_spread']:.2f}°C")
-        _write_prob_sheet("Prob Mixture Raw", mix_raw, mix_detail_info)
 
     # ── Foglio 5: Prob Comb 2 (mixture con modelli ottimizzati per stagione) ──
     if mixture_opt:
@@ -2596,23 +2231,6 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_opt['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Comb 2", mix_opt_probs, mix_opt_info)
 
-    # ── Foglio 6: Prob Comb 3 (mixture con top 5 modelli per Verde%) ──
-    if mixture_top5:
-        mix_t5_probs = mixture_top5.get("mixture_probs", {})
-        if mix_t5_probs:
-            mix_t5_info = (f"MIXTURE TOP5 | {mixture_top5['n_models_used']} modelli top Verde% | "
-                           f"spread={mixture_top5['inter_model_spread']:.2f}°C | "
-                           f"media={mixture_top5['weighted_mean_c']:.1f}°C")
-            _write_prob_sheet("Prob Comb 3", mix_t5_probs, mix_t5_info)
-
-    # ── Foglio 7: Prob Comb 4 (mixture con top 10 modelli per Verde%) ──
-    if mixture_top10:
-        mix_t10_probs = mixture_top10.get("mixture_probs", {})
-        if mix_t10_probs:
-            mix_t10_info = (f"MIXTURE TOP10 | {mixture_top10['n_models_used']} modelli top Verde% | "
-                            f"spread={mixture_top10['inter_model_spread']:.2f}°C | "
-                            f"media={mixture_top10['weighted_mean_c']:.1f}°C")
-            _write_prob_sheet("Prob Comb 4", mix_t10_probs, mix_t10_info)
 
     # ── Foglio 8: Prob Combinate Fixato (mixture senza spread in sigma) ──
     if mixture_fixed:
@@ -2634,15 +2252,6 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                         f"media={consensus_se['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Comb Fix 4", cse_probs, cse_info)
 
-    # ── Foglio 10: Tutti Deterministici (37 modelli, equal-weight, no calibraz) ──
-    if all_det:
-        all_det_probs = all_det.get("probs", {})
-        if all_det_probs:
-            all_det_info = (f"EQUAL-WEIGHT MIXTURE | {all_det['n_models']} modelli | "
-                            f"spread={all_det['spread_c']:.2f}°C | σ={all_det['sigma_c']:.2f}°C | "
-                            f"media={all_det['mean_c']:.1f}°C")
-            _write_prob_sheet("Tutti Deterministici", all_det_probs, all_det_info)
-
     wb.save(EXCEL_COMBINED)
 
 
@@ -2659,7 +2268,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Comb 2", "Prob Combinate Fixato", "Prob Comb Fix 4"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -2763,33 +2372,17 @@ def do_snapshot(market: dict, state: dict):
     log.info(f"    Deterministici: fetching...")
     deterministic = do_deterministic_forecast(city, target_date, parsed_buckets)
 
-    # 3b. Mixture Model (tutti i modelli deterministici + calibrazione)
-    log.info(f"    Mixture model: avvio...")
-    mixture = do_mixture_forecast(city, target_date, parsed_buckets)
-
-    # 3c. Mixture Ottimizzato (solo modelli selezionati dall'ottimizzazione stagionale)
+    # 3b. Mixture Ottimizzato (solo modelli selezionati dall'ottimizzazione stagionale)
     log.info(f"    Mixture ottimizzato: avvio...")
     mixture_opt = do_mixture_forecast_optimized(city, target_date, parsed_buckets)
 
-    # 3d. Mixture Top 5 (top 5 modelli per Verde% storica)
-    log.info(f"    Mixture top5: avvio...")
-    mixture_top5 = do_mixture_forecast_top5(city, target_date, parsed_buckets)
-
-    # 3e. Mixture Top 10 (top 10 modelli per Verde% storica)
-    log.info(f"    Mixture top10: avvio...")
-    mixture_top10 = do_mixture_forecast_top10(city, target_date, parsed_buckets)
-
-    # 3f. Mixture Fixed (senza spread in sigma - fix doppio conteggio)
+    # 3c. Mixture Fixed (senza spread in sigma - fix doppio conteggio)
     log.info(f"    Mixture fixed: avvio...")
     mixture_fixed = do_mixture_forecast_fixed(city, target_date, parsed_buckets)
 
-    # 3g2. Consensus SE (singola gaussiana del consenso)
+    # 3d. Consensus SE (singola gaussiana del consenso)
     log.info(f"    Consensus SE: avvio...")
     consensus_se = do_consensus_gaussian_forecast(city, target_date, parsed_buckets)
-
-    # 3g. Tutti Deterministici (37 modelli, equal-weight, no calibrazione)
-    log.info(f"    Tutti deterministici: avvio...")
-    all_det = do_all_det_forecast(city, target_date, parsed_buckets)
 
     # 4. Scrivi Excel originale
     snapshot_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -2799,13 +2392,10 @@ def do_snapshot(market: dict, state: dict):
 
     # 5. Scrivi Excel combinato
     write_combined_to_excel(city, target_date, snapshot_time, snapshot_hour, snapshot_minute,
-                             buckets, ensemble, deterministic, mixture, snapshot_mode,
+                             buckets, ensemble, deterministic, snapshot_mode,
                              mixture_opt=mixture_opt,
-                             mixture_top5=mixture_top5,
-                             mixture_top10=mixture_top10,
                              mixture_fixed=mixture_fixed,
-                             consensus_se=consensus_se,
-                             all_det=all_det)
+                             consensus_se=consensus_se)
     log.info(f"    Excel dati_combinati aggiornato")
 
     # 6. Aggiorna stato
@@ -2826,10 +2416,10 @@ def do_snapshot(market: dict, state: dict):
         log.info(f"    Forecast det: {deterministic['forecast_display']:.1f}°{deterministic['unit']} "
                  f"({deterministic['method']}, verde={deterministic['verde']:.1f}%)")
 
-    # Probabilita finali: solo mixture (deterministici con calibrazione isotonica)
-    if mixture and mixture.get("mixture_probs"):
-        comb_probs = mixture["mixture_probs"]
-        prob_source = "MIXTURE"
+    # Probabilita finali: consensus SE
+    if consensus_se and consensus_se.get("mixture_probs"):
+        comb_probs = consensus_se["mixture_probs"]
+        prob_source = "CONSENSUS_SE"
     else:
         comb_probs = {}
         prob_source = "SKIP"
@@ -3174,12 +2764,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Esempi:
-  python bot.py                       # avvia con orari default (UTC fissi)
-  python bot.py --hours 17:10u,20:10u # snapshot alle 17:10 e 20:10 UTC
-  python bot.py --hours 16:10,20:10   # snapshot alle 16:10 e 20:10 locali
+  python bot.py                       # avvia con orario default (16:10 locale)
+  python bot.py --hours 18:10         # snapshot alle 18:10 locali
   python bot.py --once                # esegui un solo ciclo
   python bot.py --status              # mostra stato corrente
-  Suffisso 'u' = UTC fisso, senza suffisso = ora locale della citta
         """,
     )
     parser.add_argument("--hours", type=str, default=default_hours,
