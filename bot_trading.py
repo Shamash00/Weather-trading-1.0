@@ -56,16 +56,18 @@ SKIP_IF_SAME_PEAK = True    # Skippa mercato se picco modello = picco Polymarket
 MIN_SPREAD = 0.6            # Spread inter-modello minimo in °C
 
 # ── Limiti di rischio ────────────────────────────────────────────────────────
-MIN_EDGE_PP = 0.0           # Nessun edge minimo: punta sui top 2 edge positivi
+MIN_EDGE_PP = 0.7           # Edge minimo 0.7pp per scommettere
+MIN_MODEL_PROB = 0.015      # Prob minima del modello (1.5%) per selezionare un bucket
 BET_SIZE_USD = 1.0          # Puntata fissa per ogni mercato ($)
-PRICE_TOLERANCE = 0.005     # Tolleranza prezzo: +0.5% solo se prezzo mercato > 5%
-PRICE_TOLERANCE_THRESHOLD = 0.05  # Sotto questa soglia, niente tolleranza
-ORDER_EXPIRATION_SECS = 6 * 3600  # Scadenza limit order: 6 ore
+PRICE_TOLERANCE_HIGH = 0.01 # Tolleranza prezzo: +1% se prezzo mercato > 5%
+PRICE_TOLERANCE_LOW = 0.005 # Tolleranza prezzo: +0.5% se prezzo mercato <= 5%
+PRICE_TOLERANCE_THRESHOLD = 0.05  # Soglia per decidere quale tolleranza applicare
+ORDER_EXPIRATION_SECS = 6 * 3600        # Scadenza limit order: 6 ore (America/Europa)
+ORDER_EXPIRATION_SECS_ASIA = int(2.5 * 3600)  # Scadenza limit order: 2.5 ore (Asia)
 
 # API endpoints
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
-ENSEMBLE_API = "https://ensemble-api.open-meteo.com/v1/ensemble"
 DETERMINISTIC_API = "https://api.open-meteo.com/v1/forecast"
 
 BASE_DIR = Path(__file__).parent
@@ -91,21 +93,6 @@ ALL_DETERMINISTIC_MODELS = [
     "meteofrance_arpege_europe", "meteofrance_arpege_world",
     "metno_seamless",
     "ukmo_global_deterministic_10km", "ukmo_uk_deterministic_2km",
-]
-
-ENSEMBLE_MODELS = [
-    "ecmwf_ifs025_ensemble",
-    "ecmwf_aifs025_ensemble",
-    "icon_global_eps",
-    "icon_eu_eps",
-    "icon_d2_eps",
-    "ncep_gefs025",
-    "ncep_gefs05",
-    "ncep_aigefs025",
-    "gem_global_ensemble",
-    "bom_access_global_ensemble",
-    "ukmo_global_ensemble_20km",
-    "ukmo_uk_ensemble_2km",
 ]
 
 # ── Coordinate stazioni + timezone ───────────────────────────────────────────
@@ -472,11 +459,18 @@ def parse_markets_from_events(events: list[dict], days_ahead: int) -> list[dict]
                 continue
 
             label = m.get("groupItemTitle") or m.get("question", "")
-            prob_raw = m.get("bestAsk") or m.get("lastTradePrice") or 0
+            # Usa bestAsk se disponibile e > 0, altrimenti lastTradePrice
+            best_ask = m.get("bestAsk")
+            last_trade = m.get("lastTradePrice")
             try:
-                prob = float(prob_raw)
+                best_ask_f = float(best_ask) if best_ask is not None else 0.0
             except (ValueError, TypeError):
-                prob = 0.0
+                best_ask_f = 0.0
+            try:
+                last_trade_f = float(last_trade) if last_trade is not None else 0.0
+            except (ValueError, TypeError):
+                last_trade_f = 0.0
+            prob = best_ask_f if best_ask_f > 0 else last_trade_f
 
             parsed = parse_bucket(label)
             key = f"{city}_{target_date}"
@@ -523,57 +517,6 @@ def calc_bucket_prob_from_celsius(values_c: np.ndarray, bucket: dict) -> float:
         return int(np.sum(mask)) / total
 
 
-def fetch_ensemble_for_city(lat, lon, forecast_date) -> dict:
-    all_members = {}
-    for model in ENSEMBLE_MODELS:
-        try:
-            r = requests.get(ENSEMBLE_API, params={
-                "latitude": lat, "longitude": lon,
-                "daily": "temperature_2m_max", "models": model,
-                "timezone": "auto",
-                "start_date": forecast_date, "end_date": forecast_date,
-            }, timeout=30)
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            daily = data.get("daily", {})
-            times = daily.get("time", [])
-            if forecast_date not in times:
-                continue
-            idx = times.index(forecast_date)
-            values = []
-            if "temperature_2m_max" in daily:
-                v = daily["temperature_2m_max"][idx]
-                if v is not None:
-                    values.append(v)
-            for dkey in sorted(daily.keys()):
-                if dkey.startswith("temperature_2m_max_member"):
-                    v = daily[dkey][idx]
-                    if v is not None:
-                        values.append(v)
-            if values:
-                all_members[model] = values
-            time_mod.sleep(0.3)
-        except Exception:
-            continue
-    return all_members
-
-
-def calc_ensemble_probs(all_members: dict, parsed_buckets: list[dict]) -> dict:
-    if not all_members:
-        return {}
-    all_vals = []
-    for vals in all_members.values():
-        all_vals.extend(vals)
-    arr = np.array(all_vals)
-    probs = {}
-    for b in parsed_buckets:
-        if b is None:
-            continue
-        probs[b["label"]] = calc_bucket_prob_from_celsius(arr, b)
-    return probs
-
-
 def fetch_deterministic_for_city(lat, lon, forecast_date, models) -> dict:
     if not models:
         return {}
@@ -587,7 +530,7 @@ def fetch_deterministic_for_city(lat, lon, forecast_date, models) -> dict:
                 "daily": "temperature_2m_max",
                 "models": ",".join(batch),
                 "start_date": forecast_date, "end_date": forecast_date,
-                "timezone": "UTC",
+                "timezone": "auto",
             }, timeout=30)
             if r.status_code != 200:
                 continue
@@ -612,20 +555,37 @@ def fetch_deterministic_for_city(lat, lon, forecast_date, models) -> dict:
     return results
 
 
-def mixture_bucket_probs(raw_forecasts: dict, city_opt: str, season: str,
-                          parsed_buckets: list[dict]) -> dict | None:
-    """Calcola probabilita per bucket usando mixture-of-normals calibrato."""
+BIAS_THRESHOLD = 1.5  # Se median |bias| citta/stagione > soglia, no bias correction
+
+def consensus_gaussian_probs(raw_forecasts: dict, city_opt: str, season: str,
+                              parsed_buckets: list[dict]) -> dict | None:
+    """
+    Gaussiana del consenso con protezione bias (Fix 4).
+
+    1. Controlla median |bias| della citta/stagione: se > BIAS_THRESHOLD,
+       usa i forecast grezzi senza correzione bias.
+    2. Calcola media pesata di tutti i modelli (mu del consenso).
+    3. Calcola SE = sqrt(spread² + (median_sigma/sqrt(n))²).
+    4. Usa una singola gaussiana N(mu, SE²) per calcolare le probabilita.
+    """
     model_stats_data = load_model_stats()
     if not model_stats_data or "stats" not in model_stats_data:
         return None
 
     all_stats = model_stats_data["stats"]
-    iso_model = model_stats_data.get("iso_enhanced")
 
     if not parsed_buckets:
         return None
 
     unit = parsed_buckets[0]["unit"] if parsed_buckets[0] else "C"
+
+    # Controlla median |bias| per decidere se applicare la correzione
+    biases_for_city = []
+    for key, s in all_stats.items():
+        if key[0] == city_opt and key[2] == season and key[3] == "D1":
+            biases_for_city.append(abs(s["bias"]))
+    median_bias = float(np.median(biases_for_city)) if biases_for_city else 0
+    use_bias = median_bias <= BIAS_THRESHOLD
 
     models_used = []
     for model_name, forecast_c in raw_forecasts.items():
@@ -635,11 +595,14 @@ def mixture_bucket_probs(raw_forecasts: dict, city_opt: str, season: str,
         if key not in all_stats:
             continue
         s = all_stats[key]
+        if use_bias:
+            mu_c = forecast_c - s["bias"]
+        else:
+            mu_c = forecast_c
         models_used.append({
             "model": model_name, "forecast_c": forecast_c,
             "bias": s["bias"], "sigma": s["sigma"],
-            "mae": s["mae"], "weight": s["weight"],
-            "mu_c": forecast_c - s["bias"],
+            "weight": s["weight"], "mu_c": mu_c,
         })
 
     if len(models_used) < 3:
@@ -651,52 +614,48 @@ def mixture_bucket_probs(raw_forecasts: dict, city_opt: str, season: str,
 
     corrected_means = [m["mu_c"] for m in models_used]
     inter_model_spread = float(np.std(corrected_means))
-
-    for m in models_used:
-        m["sigma_enh"] = np.sqrt(m["sigma"]**2 + inter_model_spread**2)
-
     weighted_mean_c = sum(m["mu_c"] * m["weight_norm"] for m in models_used)
+    median_sigma = float(np.median([m["sigma"] for m in models_used]))
+    n = len(models_used)
+
+    # Standard error del consenso
+    se_c = np.sqrt(inter_model_spread**2 + (median_sigma / np.sqrt(n))**2)
+
+    if unit == "F":
+        mu = weighted_mean_c * 9 / 5 + 32
+        se = se_c * 9 / 5
+    else:
+        mu = weighted_mean_c
+        se = se_c
+    se = max(se, 0.3)
 
     probs = {}
     for b in parsed_buckets:
         if b is None:
             continue
-        p = 0.0
-        for m in models_used:
-            if unit == "F":
-                mu = m["mu_c"] * 9 / 5 + 32
-                sigma = m["sigma_enh"] * 9 / 5
-            else:
-                mu = m["mu_c"]
-                sigma = m["sigma_enh"]
-            sigma = max(sigma, 0.3)
-            w = m["weight_norm"]
-            if b["is_lower"]:
-                p += w * norm.cdf((b["high"] + 0.5 - mu) / sigma)
-            elif b["is_upper"]:
-                p += w * (1 - norm.cdf((b["low"] - 0.5 - mu) / sigma))
-            else:
-                p += w * (norm.cdf((b["high"] + 0.5 - mu) / sigma) -
-                          norm.cdf((b["low"] - 0.5 - mu) / sigma))
+        if b["is_lower"]:
+            p = norm.cdf((b["high"] + 0.5 - mu) / se)
+        elif b["is_upper"]:
+            p = 1 - norm.cdf((b["low"] - 0.5 - mu) / se)
+        else:
+            p = (norm.cdf((b["high"] + 0.5 - mu) / se) -
+                 norm.cdf((b["low"] - 0.5 - mu) / se))
         probs[b["label"]] = max(0.0, p)
 
     total = sum(probs.values())
     if total > 0:
         probs = {k: v / total for k, v in probs.items()}
 
-    # Calibrazione isotonica
-    if iso_model is not None:
-        labels = list(probs.keys())
-        raw_p = np.array([probs[l] for l in labels])
-        cal_p = iso_model.predict(raw_p)
-        cal_p = cal_p / cal_p.sum()
-        probs = dict(zip(labels, cal_p))
+    bias_note = "con bias" if use_bias else f"NO BIAS (median|b|={median_bias:.1f})"
 
     return {
         "probs": probs,
         "n_models": len(models_used),
         "spread": inter_model_spread,
         "mean_c": weighted_mean_c,
+        "se_c": se_c,
+        "use_bias": use_bias,
+        "bias_note": bias_note,
     }
 
 
@@ -706,7 +665,7 @@ def mixture_bucket_probs(raw_forecasts: dict, city_opt: str, season: str,
 
 def compute_market_probs(city: str, target_date: str,
                           parsed_buckets: list[dict]) -> dict | None:
-    """Calcola le probabilita per un mercato usando il mixture model."""
+    """Calcola le probabilita per un mercato usando gaussiana del consenso (Fix 4)."""
     opt_city = CITY_NAME_TO_OPT.get(city)
     if not opt_city:
         return None
@@ -718,7 +677,6 @@ def compute_market_probs(city: str, target_date: str,
     month = int(target_date.split("-")[1])
     season = get_season(month, opt_city)
 
-    # Mixture model: scarica tutti i deterministici
     log.info(f"  {city} {target_date}: fetching {len(ALL_DETERMINISTIC_MODELS)} modelli...")
     raw = fetch_deterministic_for_city(
         city_data["lat"], city_data["lon"], target_date, ALL_DETERMINISTIC_MODELS)
@@ -728,10 +686,11 @@ def compute_market_probs(city: str, target_date: str,
         log.warning(f"  {city} {target_date}: troppi pochi modelli, skip")
         return None
 
-    result = mixture_bucket_probs(raw, opt_city, season, parsed_buckets)
+    result = consensus_gaussian_probs(raw, opt_city, season, parsed_buckets)
     if result:
-        log.info(f"  {city} {target_date}: mixture OK - {result['n_models']} modelli, "
-                 f"spread={result['spread']:.2f}°C, media={result['mean_c']:.1f}°C")
+        log.info(f"  {city} {target_date}: consensus SE OK - {result['n_models']} modelli, "
+                 f"spread={result['spread']:.2f}°C, SE={result['se_c']:.2f}°C, "
+                 f"media={result['mean_c']:.1f}°C ({result['bias_note']})")
     return result
 
 
@@ -780,23 +739,29 @@ def init_clob_client():
 
 
 def place_order(client, token_id: str, side: str, size_usd: float,
-                market_price: float, dry_run: bool = True) -> dict | None:
+                market_price: float, city: str = "",
+                dry_run: bool = True) -> dict | None:
     """
     Piazza un LIMIT ORDER su Polymarket.
     Prezzo = prezzo di mercato attuale + tolleranza (0.5%).
-    Scadenza = 3 ore.
+    Scadenza = 6h (America/Europa) o 2.5h (Asia).
     """
-    # Prezzo limite: +0.5% solo se mercato > 5%, altrimenti prezzo esatto
-    tol = PRICE_TOLERANCE if market_price >= PRICE_TOLERANCE_THRESHOLD else 0
+    # Prezzo limite: +1% se mercato > 5%, +0.5% se mercato <= 5%
+    tol = PRICE_TOLERANCE_HIGH if market_price >= PRICE_TOLERANCE_THRESHOLD else PRICE_TOLERANCE_LOW
     limit_price = round(min(market_price + tol, 0.99), 2)
     # Polymarket accetta prezzi con 2 decimali (0.01 - 0.99)
     limit_price = max(limit_price, 0.01)
 
-    expiration = int((datetime.now(timezone.utc) + timedelta(seconds=ORDER_EXPIRATION_SECS)).timestamp())
+    # Scadenza diversa per mercati asiatici vs americani/europei
+    city_data = match_city(city) if city else None
+    is_asia = city_data and city_data.get("tz", "").startswith("Asia/")
+    exp_secs = ORDER_EXPIRATION_SECS_ASIA if is_asia else ORDER_EXPIRATION_SECS
+    exp_label = "2.5h" if is_asia else "6h"
+    expiration = int((datetime.now(timezone.utc) + timedelta(seconds=exp_secs)).timestamp())
 
     if dry_run:
         log.info(f"    [DRY-RUN] LIMIT {side} ${size_usd:.2f} @ {limit_price:.2f} "
-                 f"(mkt={market_price:.2f}, exp=6h, token: {token_id[:16]}...)")
+                 f"(mkt={market_price:.2f}, exp={exp_label}, token: {token_id[:16]}...)")
         return {"dry_run": True, "side": side, "size": size_usd,
                 "limit_price": limit_price, "market_price": market_price}
 
@@ -820,7 +785,7 @@ def place_order(client, token_id: str, side: str, size_usd: float,
         result = client.post_order(signed_order)
 
         log.info(f"    ORDINE PIAZZATO: LIMIT BUY ${size_usd:.2f} @ {limit_price:.2f} "
-                 f"(mkt={market_price:.2f}, scade tra 6h)")
+                 f"(mkt={market_price:.2f}, scade tra {exp_label})")
         return result
 
     except Exception as e:
@@ -881,6 +846,10 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
         if pm_prob > MAX_MARKET_PRICE:
             continue
 
+        # Filtro prob minima modello: almeno 1.5%
+        if my_prob < MIN_MODEL_PROB:
+            continue
+
         candidates.append({
             "label": label,
             "side": "BUY",
@@ -905,7 +874,7 @@ def find_trades(market: dict, model_result: dict, min_edge: float) -> list[dict]
 
 
 def execute_trades(client, trades: list[dict], state: dict,
-                   dry_run: bool = True) -> int:
+                   city: str = "", dry_run: bool = True) -> int:
     """Esegue i trade COMBtop2 (sempre BUY YES, puntata fissa)."""
     executed = 0
 
@@ -926,11 +895,14 @@ def execute_trades(client, trades: list[dict], state: dict,
 
         tol = PRICE_TOLERANCE if price >= PRICE_TOLERANCE_THRESHOLD else 0
         limit_price = round(min(price + tol, 0.99), 2)
+        city_data = match_city(city) if city else None
+        is_asia = city_data and city_data.get("tz", "").startswith("Asia/")
+        exp_label = "2.5h" if is_asia else "6h"
         log.info(f"  >>> BUY YES {trade['label']}: "
                  f"modello={trade['my_prob']:.1%} mercato={price:.1%} "
-                 f"edge={trade['edge_pp']:+.1f}pp | ${BET_SIZE_USD:.2f} @ {limit_price:.2f} (exp 6h)")
+                 f"edge={trade['edge_pp']:+.1f}pp | ${BET_SIZE_USD:.2f} @ {limit_price:.2f} (exp {exp_label})")
 
-        result = place_order(client, token_id, "BUY", BET_SIZE_USD, price, dry_run)
+        result = place_order(client, token_id, "BUY", BET_SIZE_USD, price, city, dry_run)
 
         if result:
             executed += 1
@@ -992,7 +964,7 @@ def run_cycle(state: dict, client, min_edge: float,
         log.info(f"  {len(trades)} opportunita trovate!")
 
         # Esegui trade
-        n = execute_trades(client, trades, state, dry_run)
+        n = execute_trades(client, trades, state, city, dry_run)
         actions += n
 
     save_state(state)
@@ -1033,10 +1005,10 @@ def main():
     mode = "DRY-RUN" if dry_run else "LIVE"
     log.info(f"{'='*60}")
     log.info(f"  POLYMARKET WEATHER TRADING BOT - {mode}")
-    log.info(f"  Strategia: COMBtop2 | Min edge: {args.min_edge}pp")
+    log.info(f"  Strategia: Gaussiana SE (Fix4) | Min edge: {args.min_edge}pp")
     log.info(f"  Puntata fissa: ${args.bet} per mercato")
     log.info(f"  Orario trading: {TRADE_HOUR_UTC}:{TRADE_MINUTE_UTC:02d} UTC (ogni giorno)")
-    log.info(f"  Filtri: p<={MAX_MARKET_PRICE:.0%} mxP<{MAX_POLY_PEAK:.0%} samePeak=skip spr>={MIN_SPREAD}")
+    log.info(f"  Bias threshold: {BIAS_THRESHOLD}C | Filtri: p<={MAX_MARKET_PRICE:.0%} mxP<{MAX_POLY_PEAK:.0%} minProb>={MIN_MODEL_PROB:.1%} spr>={MIN_SPREAD}")
     log.info(f"{'='*60}")
 
     if not dry_run:

@@ -918,7 +918,7 @@ def _remove_resolution_from_combined_excel(city: str, target_date: str):
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -946,7 +946,7 @@ def _update_resolution_in_combined_excel(city: str, target_date: str, new_winner
     except Exception:
         return
     section_title = f"{city} \u2014 {target_date}"
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
@@ -1722,15 +1722,18 @@ def do_mixture_forecast_fixed(city: str, target_date: str,
     return result
 
 
+CONSENSUS_BIAS_THRESHOLD = 1.5  # Se median |bias| citta/stagione > soglia, no bias correction
+
 def do_consensus_gaussian_forecast(city: str, target_date: str,
                                     parsed_buckets: list[dict]) -> dict | None:
     """
-    Singola gaussiana del consenso: N(media_pesata, SE²).
-    SE = sqrt(spread² + (median_sigma/sqrt(n))²)
+    Gaussiana del consenso con protezione bias (Fix 4).
 
-    Invece di un mixture con N gaussiane (ognuna con sigma individuale alto),
-    usa una sola gaussiana centrata sulla media pesata con sigma = standard error
-    del consenso. Evita le code gonfiate dei bucket estremi illimitati.
+    1. Controlla median |bias| della citta/stagione: se > CONSENSUS_BIAS_THRESHOLD,
+       usa i forecast grezzi senza correzione bias.
+    2. Calcola media pesata di tutti i modelli (mu del consenso).
+    3. Calcola SE = sqrt(spread² + (median_sigma/sqrt(n))²).
+    4. Usa una singola gaussiana N(mu, SE²) per calcolare le probabilita.
     """
     from scipy.stats import norm
 
@@ -1759,6 +1762,15 @@ def do_consensus_gaussian_forecast(city: str, target_date: str,
         return None
 
     all_stats = model_stats_data["stats"]
+
+    # Controlla median |bias| per decidere se applicare la correzione
+    biases_for_city = []
+    for key, s in all_stats.items():
+        if key[0] == opt_city and key[2] == season and key[3] == "D1":
+            biases_for_city.append(abs(s["bias"]))
+    median_bias = float(np.median(biases_for_city)) if biases_for_city else 0
+    use_bias = median_bias <= CONSENSUS_BIAS_THRESHOLD
+
     models_used = []
     for model_name, forecast_c in raw.items():
         if forecast_c is None:
@@ -1767,11 +1779,15 @@ def do_consensus_gaussian_forecast(city: str, target_date: str,
         if key not in all_stats:
             continue
         s = all_stats[key]
+        if use_bias:
+            mu_c = forecast_c - s["bias"]
+        else:
+            mu_c = forecast_c
         models_used.append({
             "model": model_name, "forecast_c": forecast_c,
             "bias": s["bias"], "sigma": s["sigma"],
             "weight": s["weight"],
-            "mu_c": forecast_c - s["bias"],
+            "mu_c": mu_c,
         })
 
     if len(models_used) < 3:
@@ -1820,9 +1836,10 @@ def do_consensus_gaussian_forecast(city: str, target_date: str,
     if total > 0:
         probs = {k: v / total for k, v in probs.items()}
 
+    bias_note = "con bias" if use_bias else f"NO BIAS (median|b|={median_bias:.1f})"
     log.info(f"    Consensus SE: {n} modelli, "
              f"spread={inter_model_spread:.2f}°C, SE={se_c:.2f}°C, "
-             f"media={weighted_mean_c:.1f}°C")
+             f"media={weighted_mean_c:.1f}°C ({bias_note})")
 
     return {
         "mixture_probs": probs,
@@ -1830,6 +1847,8 @@ def do_consensus_gaussian_forecast(city: str, target_date: str,
         "inter_model_spread": inter_model_spread,
         "weighted_mean_c": weighted_mean_c,
         "se_c": se_c,
+        "use_bias": use_bias,
+        "bias_note": bias_note,
         "models_detail": models_used,
     }
 
@@ -2604,15 +2623,16 @@ def write_combined_to_excel(city: str, target_date: str, snapshot_time: str,
                             f"media={mixture_fixed['weighted_mean_c']:.1f}°C")
             _write_prob_sheet("Prob Combinate Fixato", mix_fix_probs, mix_fix_info)
 
-    # ── Foglio 9b: Prob Comb Fix 2 (singola gaussiana del consenso, SE) ──
+    # ── Foglio 9b: Prob Comb Fix 4 (gaussiana SE con protezione bias) ──
     if consensus_se:
         cse_probs = consensus_se.get("mixture_probs", {})
         if cse_probs:
-            cse_info = (f"CONSENSO GAUSSIANO SE | {consensus_se['n_models_used']} modelli | "
+            bias_note = consensus_se.get("bias_note", "con bias")
+            cse_info = (f"GAUSSIANO SE ({bias_note}) | {consensus_se['n_models_used']} modelli | "
                         f"spread={consensus_se['inter_model_spread']:.2f}°C | "
                         f"SE={consensus_se['se_c']:.2f}°C | "
                         f"media={consensus_se['weighted_mean_c']:.1f}°C")
-            _write_prob_sheet("Prob Comb Fix 2", cse_probs, cse_info)
+            _write_prob_sheet("Prob Comb Fix 4", cse_probs, cse_info)
 
     # ── Foglio 10: Tutti Deterministici (37 modelli, equal-weight, no calibraz) ──
     if all_det:
@@ -2639,7 +2659,7 @@ def write_resolution_to_combined_excel(city: str, target_date: str, winner: str,
     section_title = f"{city} \u2014 {target_date}"
     RES_FILL = PatternFill("solid", fgColor="E2EFDA")
 
-    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 2", "Tutti Deterministici"]:
+    for sheet_name in ["Prob Deterministici", "Prob Ensemble", "Prob Combinate", "Prob Mixture Raw", "Prob Comb 2", "Prob Comb 3", "Prob Comb 4", "Prob Combinate Fixato", "Prob Comb Fix 4", "Tutti Deterministici"]:
         if sheet_name not in wb.sheetnames:
             continue
         ws = wb[sheet_name]
